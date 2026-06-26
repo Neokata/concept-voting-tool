@@ -2,11 +2,13 @@
 
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { use, useMemo, useState } from "react";
+import { use, useEffect, useMemo, useState } from "react";
 import { useStore } from "@/lib/hooks";
 import { store } from "@/lib/store";
 import { MAX_YES_PER_PARTICIPANT } from "@/lib/types";
-import { remainingYes, votesByParticipant } from "@/lib/voting";
+import { votesByParticipant } from "@/lib/voting";
+
+type ParticipantInfo = { id: string; alias: string };
 
 export default function SessionVotePage({
   params,
@@ -17,54 +19,36 @@ export default function SessionVotePage({
   const code = rawCode.toUpperCase();
   const router = useRouter();
   const data = useStore();
-  const session = useMemo(
-    () => data.sessions.find((s) => s.code === code),
-    [data.sessions, code]
-  );
+  const session = data.sessions.find((s) => s.code === code) ?? null;
 
-  // Identify this participant (set by /join)
-  const participantInfo = useMemo(() => {
-    if (typeof window === "undefined") return null;
+  // Read participant from sessionStorage in an effect (not during render).
+  // If absent, redirect to /join with the code preserved.
+  const [participantInfo, setParticipantInfo] = useState<ParticipantInfo | null>(null);
+  const [participantResolved, setParticipantResolved] = useState(false);
+  useEffect(() => {
     const raw = window.sessionStorage.getItem(`participant:${code}`);
-    if (!raw) return null;
-    try {
-      return JSON.parse(raw) as { id: string; alias: string };
-    } catch {
-      return null;
-    }
-  }, [code]);
-
-  // If no participant, send them back to /join
-  if (typeof window !== "undefined" && !participantInfo) {
-    if (typeof window !== "undefined") {
+    if (!raw) {
       router.replace(`/join?code=${code}`);
+      return;
     }
+    try {
+      setParticipantInfo(JSON.parse(raw) as ParticipantInfo);
+    } catch {
+      router.replace(`/join?code=${code}`);
+      return;
+    }
+    setParticipantResolved(true);
+  }, [code, router]);
+
+  if (participantResolved && !session) {
+    return <NotFound code={code} />;
   }
 
-  if (!session) {
-    return (
-      <div className="mx-auto max-w-md px-6 py-16 text-center">
-        <h1 className="text-2xl font-bold">Session not found</h1>
-        <p className="mt-2 text-zinc-600">
-          No session exists with code <code className="font-mono">{code}</code>.
-        </p>
-        <Link href="/join" className="mt-6 inline-block text-blue-700 hover:underline">
-          Try a different code
-        </Link>
-      </div>
-    );
+  if (participantResolved && session?.status === "draft") {
+    return <WaitingScreen code={code} message="Waiting for the facilitator to open the session." />;
   }
 
-  if (session.status === "draft") {
-    return (
-      <WaitingScreen
-        code={code}
-        message="Waiting for the facilitator to open the session."
-      />
-    );
-  }
-
-  if (session.status === "closed") {
+  if (participantResolved && session?.status === "closed") {
     return (
       <WaitingScreen
         code={code}
@@ -73,20 +57,36 @@ export default function SessionVotePage({
     );
   }
 
-  if (!participantInfo) {
+  if (!participantResolved || !session || !participantInfo) {
     return (
-      <WaitingScreen code={code} message="Redirecting to join…" />
+      <div className="mx-auto max-w-md px-6 py-16 text-center text-sm text-zinc-500">
+        Loading…
+      </div>
     );
   }
 
   return (
     <VotingView
       code={code}
-      sessionId={session.id}
+      session={session}
       participantId={participantInfo.id}
       alias={participantInfo.alias}
       onSubmitted={() => router.push(`/results/${code}`)}
     />
+  );
+}
+
+function NotFound({ code }: { code: string }) {
+  return (
+    <div className="mx-auto max-w-md px-6 py-16 text-center">
+      <h1 className="text-2xl font-bold">Session not found</h1>
+      <p className="mt-2 text-zinc-600">
+        No session exists with code <code className="font-mono">{code}</code>.
+      </p>
+      <Link href="/join" className="mt-6 inline-block text-blue-700 hover:underline">
+        Try a different code
+      </Link>
+    </div>
   );
 }
 
@@ -107,33 +107,50 @@ function WaitingScreen({ code, message }: { code: string; message: string }) {
 
 function VotingView({
   code,
-  sessionId,
+  session,
   participantId,
   alias,
   onSubmitted,
 }: {
   code: string;
-  sessionId: string;
+  session: import("@/lib/types").Session;
   participantId: string;
   alias: string;
   onSubmitted: () => void;
 }) {
   const data = useStore();
-  const session = data.sessions.find((s) => s.id === sessionId);
-  if (!session) return null;
   const concepts = session.conceptIds
     .map((id) => data.concepts.find((c) => c.id === id))
     .filter((c): c is NonNullable<typeof c> => Boolean(c));
 
-  const persistedVotes = votesByParticipant(data.votes, sessionId, participantId);
-  const [votes, setVotes] = useState<Map<string, "yes" | "no">>(persistedVotes);
+  // The participant's persisted votes from the store, as a stable string key.
+  // We compare by string (sorted entries) instead of by reference to avoid
+  // re-syncing local state when the store re-emits the same data.
+  const persistedKey = useMemo(() => {
+    const map = votesByParticipant(data.votes, session.id, participantId);
+    return Array.from(map.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([k, v]) => `${k}=${v}`)
+      .join("|");
+  }, [data.votes, session.id, participantId]);
+
+  // Local mutable vote map. Seeded from persisted on first render via lazy init.
+  const [votes, setVotes] = useState<Map<string, "yes" | "no">>(() => {
+    const map = votesByParticipant(data.votes, session.id, participantId);
+    return new Map(map);
+  });
   const [submitted, setSubmitted] = useState(false);
   const [filter, setFilter] = useState<"all" | "yes" | "no" | "unvoted">("all");
 
-  // Re-sync local votes if the store changes from another tab.
-  useMemo(() => {
-    setVotes(new Map(persistedVotes));
-  }, [persistedVotes]);
+  // If persisted votes change (e.g. another tab, or after a re-open), re-sync.
+  useEffect(() => {
+    const map = votesByParticipant(data.votes, session.id, participantId);
+    setVotes(new Map(map));
+    // We intentionally depend on persistedKey (a stable string) rather than
+    // data.votes — the latter changes reference whenever the store updates
+    // anything, including this user's own votes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [persistedKey]);
 
   const yesCount = Array.from(votes.values()).filter((v) => v === "yes").length;
   const remaining = Math.max(0, MAX_YES_PER_PARTICIPANT - yesCount);
@@ -141,31 +158,31 @@ function VotingView({
 
   function setVote(conceptId: string, value: "yes" | "no") {
     if (submitted) return;
-    const next = new Map(votes);
-    const prev = next.get(conceptId);
-    if (prev === value) {
-      next.delete(conceptId);
-    } else if (value === "yes" && prev !== "yes" && yesCount >= MAX_YES_PER_PARTICIPANT) {
-      // Block: at cap
-      return;
-    } else {
-      next.set(conceptId, value);
-    }
-    setVotes(next);
+    setVotes((prev) => {
+      const next = new Map(prev);
+      const cur = next.get(conceptId);
+      if (cur === value) {
+        next.delete(conceptId);
+      } else if (value === "yes" && cur !== "yes" && countYes(prev) >= MAX_YES_PER_PARTICIPANT) {
+        // At cap — block this Yes.
+        return prev;
+      } else {
+        next.set(conceptId, value);
+      }
+      return next;
+    });
   }
 
   function handleSubmit() {
-    // Write all votes to store.
+    // Write all current votes to store.
     for (const [conceptId, value] of votes.entries()) {
-      store.castVote(sessionId, participantId, conceptId, value);
+      store.castVote(session.id, participantId, conceptId, value);
     }
-    // Clear any previously-set votes not in the new map (e.g. user changed mind and removed).
-    // Simplest: compare to store and delete extras.
-    const storeVotes = votesByParticipant(data.votes, sessionId, participantId);
-    for (const [conceptId, value] of storeVotes.entries()) {
-      if (!votes.has(conceptId)) store.clearVote(sessionId, participantId, conceptId);
-      else if (value !== votes.get(conceptId)) {
-        // Updated value; castVote above already wrote it, no further action.
+    // Clear any persisted votes the user removed.
+    const currentMap = votesByParticipant(data.votes, session.id, participantId);
+    for (const conceptId of currentMap.keys()) {
+      if (!votes.has(conceptId)) {
+        store.clearVote(session.id, participantId, conceptId);
       }
     }
     setSubmitted(true);
@@ -289,4 +306,10 @@ function VotingView({
       )}
     </div>
   );
+}
+
+function countYes(m: Map<string, "yes" | "no">): number {
+  let n = 0;
+  for (const v of m.values()) if (v === "yes") n++;
+  return n;
 }
