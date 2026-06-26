@@ -3,7 +3,7 @@
 // Pure helpers: aggregation, sort, filter. No I/O.
 
 import { Concept, Customer, Session, Vote } from "./types";
-import { MAX_YES_PER_PARTICIPANT } from "./types";
+import { DEFAULT_YES_CAP } from "./types";
 
 export type ConceptResult = {
   concept: Concept;
@@ -69,8 +69,8 @@ export function countYes(participantVotes: Map<string, "yes" | "no">): number {
   return n;
 }
 
-export function remainingYes(participantVotes: Map<string, "yes" | "no">): number {
-  return Math.max(0, MAX_YES_PER_PARTICIPANT - countYes(participantVotes));
+export function remainingYes(participantVotes: Map<string, "yes" | "no">, cap: number = DEFAULT_YES_CAP): number {
+  return Math.max(0, cap - countYes(participantVotes));
 }
 
 // ---------- Filter / sort for admin views ----------

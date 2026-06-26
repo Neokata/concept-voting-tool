@@ -5,11 +5,12 @@
 
 import { DataState, Session, Concept, Customer, Participant, Vote } from "./types";
 import { seedIfEmpty } from "./seed";
+import { buildDemoState } from "./demoData";
 
-const STORAGE_KEY = "concept-voting:v1";
+const STORAGE_KEY = "concept-voting:v2";
 
 const empty: DataState = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   concepts: [],
   customers: [],
   participants: [],
@@ -36,7 +37,7 @@ function readRaw(): DataState {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return empty;
     const parsed = JSON.parse(raw);
-    if (!parsed || parsed.schemaVersion !== 1) {
+    if (!parsed || parsed.schemaVersion !== 2) {
       console.warn("[store] schema version mismatch — resetting");
       return empty;
     }
@@ -170,6 +171,7 @@ export const store = {
       date: input.date,
       conceptIds: input.conceptIds,
       status: "draft",
+      yesCap: input.yesCap,
       createdAt: new Date().toISOString(),
     };
     writeRaw({ ...state, sessions: [...state.sessions, session] });
@@ -209,6 +211,7 @@ export const store = {
       name: input.name,
       description: input.description,
       category: input.category,
+      imageUrl: input.imageUrl,
       suppressedFor: input.suppressedFor ?? [],
       createdAt: new Date().toISOString(),
     };
@@ -285,5 +288,44 @@ export const store = {
   /** Wipe all data. Used by the export/import feature for a "reset" button. */
   resetAll(): void {
     writeRaw(empty);
+  },
+
+  /**
+   * Load the demo dataset (5 customers, 60 concepts, 6 sessions with votes).
+   * Idempotent: refuses if any sessions already exist.
+   * Returns the resulting state on success, or throws on failure.
+   */
+  loadDemoData(): DataState {
+    const state = getSnapshot();
+    if (state.sessions.length > 0) {
+      throw new Error(
+        "Demo data can only be loaded when there are no sessions yet. Reset data first."
+      );
+    }
+    const demo = buildDemoState();
+    writeRaw(demo);
+    return demo;
+  },
+
+  /**
+   * Create many concepts at once (used by the bulk-paste flow).
+   * Returns the list of created concepts (with their new ids).
+   */
+  bulkCreateConcepts(
+    inputs: Array<{ name: string; category?: string; description?: string; imageUrl?: string }>
+  ): Concept[] {
+    const state = getSnapshot();
+    const createdAt = new Date().toISOString();
+    const newConcepts: Concept[] = inputs.map((input) => ({
+      id: newId(),
+      name: input.name,
+      category: input.category,
+      description: input.description,
+      imageUrl: input.imageUrl,
+      suppressedFor: [],
+      createdAt,
+    }));
+    writeRaw({ ...state, concepts: [...state.concepts, ...newConcepts] });
+    return newConcepts;
   },
 };

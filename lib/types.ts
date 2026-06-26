@@ -1,11 +1,13 @@
 // Core data model for the Concept Voting POC.
 // All entities live in a single localStorage blob, schema-versioned in lib/store.ts.
+// Schema version 2: added imageUrl on Concept, yesCap on Session.
 
 export type Concept = {
   id: string;
   name: string;
   description?: string;
   category?: string;
+  imageUrl?: string;
   // Customer ids this concept should be hidden from in new sessions.
   suppressedFor: string[];
   createdAt: string; // ISO
@@ -33,6 +35,8 @@ export type Session = {
   date: string; // ISO date (yyyy-mm-dd)
   conceptIds: string[]; // ordered list of concepts shown in this session
   status: SessionStatus;
+  // Max number of "Yes" votes each participant is allowed in this session.
+  yesCap: number;
   createdAt: string;
 };
 
@@ -45,7 +49,7 @@ export type Vote = {
 };
 
 export type DataState = {
-  schemaVersion: 1;
+  schemaVersion: 2;
   concepts: Concept[];
   customers: Customer[];
   participants: Participant[];
@@ -53,4 +57,6 @@ export type DataState = {
   votes: Vote[];
 };
 
-export const MAX_YES_PER_PARTICIPANT = 30;
+// Fallback when a session record predates the yesCap field.
+// We default to 10 because that's the most common case we'll see in demo data.
+export const DEFAULT_YES_CAP = 10;

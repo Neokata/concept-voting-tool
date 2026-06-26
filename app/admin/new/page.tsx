@@ -97,6 +97,7 @@ export default function NewSessionPage() {
       customerId: finalCustomerId,
       date,
       conceptIds: Array.from(selected),
+      yesCap: 10, // TODO: replace with form input in task 16
     });
 
     if (openAfter) store.updateSession(session.id, { status: "open" });

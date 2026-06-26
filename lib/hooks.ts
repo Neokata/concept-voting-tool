@@ -8,7 +8,7 @@ import { getSnapshot, subscribe } from "./store";
 import { DataState } from "./types";
 
 const SERVER_SNAPSHOT: DataState = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   concepts: [],
   customers: [],
   participants: [],

@@ -5,7 +5,8 @@ import Link from "next/link";
 import { use, useEffect, useMemo, useState } from "react";
 import { useStore } from "@/lib/hooks";
 import { store } from "@/lib/store";
-import { MAX_YES_PER_PARTICIPANT } from "@/lib/types";
+import { DEFAULT_YES_CAP } from "@/lib/types";
+
 import { votesByParticipant } from "@/lib/voting";
 
 type ParticipantInfo = { id: string; alias: string };
@@ -153,8 +154,9 @@ function VotingView({
   }, [persistedKey]);
 
   const yesCount = Array.from(votes.values()).filter((v) => v === "yes").length;
-  const remaining = Math.max(0, MAX_YES_PER_PARTICIPANT - yesCount);
-  const atCap = yesCount >= MAX_YES_PER_PARTICIPANT;
+  const cap = session.yesCap ?? DEFAULT_YES_CAP;
+  const remaining = Math.max(0, cap - yesCount);
+  const atCap = yesCount >= cap;
 
   function setVote(conceptId: string, value: "yes" | "no") {
     if (submitted) return;
@@ -163,7 +165,7 @@ function VotingView({
       const cur = next.get(conceptId);
       if (cur === value) {
         next.delete(conceptId);
-      } else if (value === "yes" && cur !== "yes" && countYes(prev) >= MAX_YES_PER_PARTICIPANT) {
+      } else if (value === "yes" && cur !== "yes" && countYes(prev) >= cap) {
         // At cap — block this Yes.
         return prev;
       } else {
@@ -210,7 +212,7 @@ function VotingView({
           <div className="rounded-md bg-zinc-100 px-3 py-1.5 text-sm">
             Yes votes:{" "}
             <strong className={atCap ? "text-red-700" : "text-zinc-900"}>
-              {yesCount} / {MAX_YES_PER_PARTICIPANT}
+              {yesCount} / {cap}
             </strong>
           </div>
           {!submitted && (
