@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useStore } from "@/lib/hooks";
 import { store } from "@/lib/store";
@@ -9,13 +9,25 @@ import { store } from "@/lib/store";
 export default function NewSessionPage() {
   const router = useRouter();
   const data = useStore();
-  const [customerMode, setCustomerMode] = useState<"existing" | "new">(
-    data.customers.length > 0 ? "existing" : "new"
-  );
-  const [customerId, setCustomerId] = useState<string>(
-    data.customers[0]?.id ?? ""
-  );
+  // Default to "existing" mode if there are any customers, "new" otherwise.
+  // useState initializer runs once with the server snapshot (always empty),
+  // so we instead use an effect to set the initial mode once data arrives.
+  const [customerMode, setCustomerMode] = useState<"existing" | "new">("new");
+  const [customerId, setCustomerId] = useState<string>("");
+  const [initialized, setInitialized] = useState(false);
   const [newCustomerName, setNewCustomerName] = useState("");
+
+  // Once client-side data is loaded, default to existing-customer mode if any exist.
+  // Note: we only mark `initialized` once we've seen non-empty data, so the
+  // server-snapshot-then-client-snapshot transition doesn't lock us into
+  // "new" mode prematurely.
+  useEffect(() => {
+    if (initialized) return;
+    if (data.customers.length === 0) return;
+    setCustomerMode("existing");
+    setCustomerId(data.customers[0].id);
+    setInitialized(true);
+  }, [data.customers, initialized]);
   const [date, setDate] = useState<string>(new Date().toISOString().slice(0, 10));
   const [includeSuppressed, setIncludeSuppressed] = useState(false);
   const [conceptSearch, setConceptSearch] = useState("");
