@@ -4,7 +4,11 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useStore } from "@/lib/hooks";
 import { store } from "@/lib/store";
-import { buildConceptStats } from "@/lib/voting";
+import {
+  buildConceptStats,
+  buildConceptCustomerResults,
+  customersShownTo,
+} from "@/lib/voting";
 
 export default function ConceptsPage() {
   const data = useStore();
@@ -15,13 +19,11 @@ export default function ConceptsPage() {
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [drillDownId, setDrillDownId] = useState<string | null>(null);
 
   return (
-    <div className="mx-auto max-w-6xl px-6 py-10">
-      <Link href="/admin" className="text-sm text-zinc-500 hover:underline">
-        ← Back to admin
-      </Link>
-      <div className="mt-2 flex items-center justify-between">
+    <div className="mx-auto max-w-6xl px-6 py-8">
+      <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Concepts ({data.concepts.length})</h1>
         <button
           onClick={() => setCreating(true)}
@@ -37,6 +39,7 @@ export default function ConceptsPage() {
             <tr>
               <th className="px-4 py-3">Name</th>
               <th className="px-4 py-3">Category</th>
+              <th className="px-4 py-3">Shown to</th>
               <th className="px-4 py-3 text-right">Shown</th>
               <th className="px-4 py-3 text-right">In top 30</th>
               <th className="px-4 py-3 text-right">Yes / No</th>
@@ -47,21 +50,47 @@ export default function ConceptsPage() {
           <tbody className="divide-y divide-zinc-100">
             {stats.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-12 text-center text-zinc-500">
+                <td colSpan={8} className="px-4 py-12 text-center text-zinc-500">
                   No concepts yet. Click <strong>+ New concept</strong>.
                 </td>
               </tr>
             )}
             {stats.map((s) => {
+              const shownTo = customersShownTo(s.concept, data.sessions, data.customers);
               const suppressedNames = s.concept.suppressedFor
                 .map((id) => data.customers.find((c) => c.id === id)?.name)
                 .filter(Boolean) as string[];
               return (
-                <tr key={s.concept.id} className="hover:bg-zinc-50">
+                <tr
+                  key={s.concept.id}
+                  className="cursor-pointer hover:bg-zinc-50"
+                  onClick={() => setDrillDownId(s.concept.id)}
+                >
                   <td className="px-4 py-3 font-medium text-zinc-900">
                     {s.concept.name}
                   </td>
                   <td className="px-4 py-3 text-zinc-700">{s.concept.category ?? "—"}</td>
+                  <td className="px-4 py-3">
+                    {shownTo.length === 0 ? (
+                      <span className="text-zinc-400">never</span>
+                    ) : (
+                      <div className="flex flex-wrap gap-1">
+                        {shownTo.slice(0, 3).map((c) => (
+                          <span
+                            key={c.id}
+                            className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-700"
+                          >
+                            {c.name}
+                          </span>
+                        ))}
+                        {shownTo.length > 3 && (
+                          <span className="text-xs text-zinc-500">
+                            +{shownTo.length - 3} more
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-right">{s.timesShown}</td>
                   <td className="px-4 py-3 text-right">{s.timesInTop30}</td>
                   <td className="px-4 py-3 text-right">
@@ -83,7 +112,10 @@ export default function ConceptsPage() {
                       </div>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-right">
+                  <td
+                    className="px-4 py-3 text-right"
+                    onClick={(e) => e.stopPropagation()}
+                  >
                     <div className="flex justify-end gap-2">
                       <button
                         onClick={() => setEditingId(s.concept.id)}
@@ -114,6 +146,20 @@ export default function ConceptsPage() {
         </table>
       </div>
 
+      {drillDownId && (
+        <ConceptDetailModal
+          concept={data.concepts.find((c) => c.id === drillDownId)!}
+          customers={data.customers}
+          sessions={data.sessions}
+          votes={data.votes}
+          onClose={() => setDrillDownId(null)}
+          onEdit={() => {
+            setEditingId(drillDownId);
+            setDrillDownId(null);
+          }}
+        />
+      )}
+
       {(creating || editingId) && (
         <ConceptModal
           id={editingId}
@@ -129,6 +175,145 @@ export default function ConceptsPage() {
   );
 }
 
+function ConceptDetailModal({
+  concept,
+  customers,
+  sessions,
+  votes,
+  onClose,
+  onEdit,
+}: {
+  concept: import("@/lib/types").Concept;
+  customers: import("@/lib/types").Customer[];
+  sessions: import("@/lib/types").Session[];
+  votes: import("@/lib/types").Vote[];
+  onClose: () => void;
+  onEdit: () => void;
+}) {
+  const customerResults = buildConceptCustomerResults(concept, sessions, votes, customers);
+  const suppressedNames = concept.suppressedFor
+    .map((id) => customers.find((c) => c.id === id)?.name)
+    .filter(Boolean) as string[];
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-white shadow-lg"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Image */}
+        {concept.imageUrl ? (
+          <img
+            src={concept.imageUrl}
+            alt={concept.name}
+            className="h-48 w-full rounded-t-xl object-cover"
+          />
+        ) : (
+          <div className="flex h-48 w-full items-center justify-center rounded-t-xl bg-gradient-to-br from-zinc-100 to-zinc-200 text-zinc-400">
+            <span className="text-sm">No image</span>
+          </div>
+        )}
+
+        <div className="p-6">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h2 className="text-2xl font-bold text-zinc-900">{concept.name}</h2>
+              {concept.category && (
+                <p className="mt-1 text-sm text-zinc-500">{concept.category}</p>
+              )}
+            </div>
+            <button
+              onClick={onEdit}
+              className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+            >
+              Edit
+            </button>
+          </div>
+
+          {concept.description && (
+            <p className="mt-3 text-sm text-zinc-700">{concept.description}</p>
+          )}
+
+          {suppressedNames.length > 0 && (
+            <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3">
+              <p className="text-xs font-semibold text-amber-900">
+                Suppressed for:
+              </p>
+              <div className="mt-1 flex flex-wrap gap-1">
+                {suppressedNames.map((n) => (
+                  <span
+                    key={n}
+                    className="rounded bg-amber-200 px-1.5 py-0.5 text-xs text-amber-900"
+                  >
+                    {n}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Customer scores */}
+          <section className="mt-6">
+            <h3 className="text-sm font-semibold text-zinc-700">
+              Shown to {customerResults.length} customer
+              {customerResults.length === 1 ? "" : "s"}
+            </h3>
+            {customerResults.length === 0 ? (
+              <p className="mt-2 text-sm text-zinc-500">
+                Not shown in any session yet.
+              </p>
+            ) : (
+              <div className="mt-3 overflow-hidden rounded-lg border border-zinc-200">
+                <table className="min-w-full divide-y divide-zinc-200 text-sm">
+                  <thead className="bg-zinc-50 text-left text-xs font-medium uppercase tracking-wide text-zinc-500">
+                    <tr>
+                      <th className="px-3 py-2">Customer</th>
+                      <th className="px-3 py-2">Date</th>
+                      <th className="px-3 py-2 text-right">Yes</th>
+                      <th className="px-3 py-2 text-right">No</th>
+                      <th className="px-3 py-2 text-right">% Yes</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-100">
+                    {customerResults.map((cr) => {
+                      const cust = customers.find((c) => c.id === cr.customerId);
+                      return (
+                        <tr key={`${cr.customerId}-${cr.sessionId}`}>
+                          <td className="px-3 py-2 font-medium text-zinc-900">
+                            {cust?.name ?? "(deleted)"}
+                          </td>
+                          <td className="px-3 py-2 text-zinc-700">{cr.sessionDate}</td>
+                          <td className="px-3 py-2 text-right text-green-700">
+                            {cr.yes}
+                          </td>
+                          <td className="px-3 py-2 text-right text-red-700">{cr.no}</td>
+                          <td className="px-3 py-2 text-right">{cr.percentYes}%</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        </div>
+
+        <div className="flex justify-end border-t border-zinc-200 p-4">
+          <button
+            onClick={onClose}
+            className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ConceptModal({
   id,
   initial,
@@ -136,13 +321,14 @@ function ConceptModal({
   onClose,
 }: {
   id: string | null;
-  initial?: { name: string; description?: string; category?: string; suppressedFor: string[] };
+  initial?: { name: string; description?: string; category?: string; imageUrl?: string; suppressedFor: string[] };
   customers: { id: string; name: string }[];
   onClose: () => void;
 }) {
   const [name, setName] = useState(initial?.name ?? "");
   const [description, setDescription] = useState(initial?.description ?? "");
   const [category, setCategory] = useState(initial?.category ?? "");
+  const [imageUrl, setImageUrl] = useState(initial?.imageUrl ?? "");
   const [suppressedFor, setSuppressedFor] = useState<string[]>(initial?.suppressedFor ?? []);
   const [error, setError] = useState<string | null>(null);
 
@@ -161,6 +347,7 @@ function ConceptModal({
       name: name.trim(),
       description: description.trim() || undefined,
       category: category.trim() || undefined,
+      imageUrl: imageUrl.trim() || undefined,
       suppressedFor,
     };
     if (id) store.updateConcept(id, payload);
@@ -207,6 +394,20 @@ function ConceptModal({
               placeholder="e.g. Sauces, Rubs, Glazes"
               className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-1.5 text-sm"
             />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-zinc-600">
+              Image URL (optional)
+            </label>
+            <input
+              value={imageUrl}
+              onChange={(e) => setImageUrl(e.target.value)}
+              placeholder="https://…"
+              className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-1.5 text-sm"
+            />
+            <p className="mt-1 text-xs text-zinc-500">
+              Paste a URL to an image. No upload UI in this POC.
+            </p>
           </div>
           {customers.length > 0 && (
             <div>

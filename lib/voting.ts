@@ -186,5 +186,71 @@ export function buildConceptStats(
   });
 }
 
+// ---------- Per-customer concept breakdown ----------
+
+export type ConceptCustomerResult = {
+  customerId: string;
+  sessionId: string;
+  sessionDate: string;
+  yes: number;
+  no: number;
+  total: number;
+  percentYes: number;
+};
+
+/**
+ * For a single concept, return one row per (customer, session) appearance
+ * showing how that customer scored the concept.
+ */
+export function buildConceptCustomerResults(
+  concept: Concept,
+  sessions: Session[],
+  votes: Vote[],
+  customers: Customer[]
+): ConceptCustomerResult[] {
+  const out: ConceptCustomerResult[] = [];
+  for (const session of sessions) {
+    if (!session.conceptIds.includes(concept.id)) continue;
+    const sessionVotes = votes.filter(
+      (v) => v.sessionId === session.id && v.conceptId === concept.id
+    );
+    const yes = sessionVotes.filter((v) => v.value === "yes").length;
+    const no = sessionVotes.filter((v) => v.value === "no").length;
+    const total = yes + no;
+    out.push({
+      customerId: session.customerId,
+      sessionId: session.id,
+      sessionDate: session.date,
+      yes,
+      no,
+      total,
+      percentYes: total === 0 ? 0 : Math.round((yes / total) * 100),
+    });
+  }
+  // Newest sessions first
+  out.sort((a, b) => b.sessionDate.localeCompare(a.sessionDate));
+  // Reference customers array to keep typing happy (customers param not used here,
+  // but signature keeps the call site readable)
+  void customers;
+  return out;
+}
+
+/** Quick helper: list of customer names this concept has been shown to. */
+export function customersShownTo(
+  concept: Concept,
+  sessions: Session[],
+  customers: Customer[]
+): { id: string; name: string }[] {
+  const ids = new Set<string>();
+  for (const s of sessions) {
+    if (s.conceptIds.includes(concept.id)) ids.add(s.customerId);
+  }
+  const out: { id: string; name: string }[] = [];
+  for (const c of customers) {
+    if (ids.has(c.id)) out.push({ id: c.id, name: c.name });
+  }
+  return out;
+}
+
 /** Generate a 6-character join code. Re-export from store for convenience. */
 export { generateJoinCode } from "./store";

@@ -6,7 +6,6 @@ import { use, useEffect, useMemo, useState } from "react";
 import { useStore } from "@/lib/hooks";
 import { store } from "@/lib/store";
 import { DEFAULT_YES_CAP } from "@/lib/types";
-
 import { votesByParticipant } from "@/lib/voting";
 
 type ParticipantInfo = { id: string; alias: string };
@@ -22,8 +21,7 @@ export default function SessionVotePage({
   const data = useStore();
   const session = data.sessions.find((s) => s.code === code) ?? null;
 
-  // Read participant from sessionStorage in an effect (not during render).
-  // If absent, redirect to /join with the code preserved.
+  // Resolve participant from sessionStorage in an effect.
   const [participantInfo, setParticipantInfo] = useState<ParticipantInfo | null>(null);
   const [participantResolved, setParticipantResolved] = useState(false);
   useEffect(() => {
@@ -46,7 +44,12 @@ export default function SessionVotePage({
   }
 
   if (participantResolved && session?.status === "draft") {
-    return <WaitingScreen code={code} message="Waiting for the facilitator to open the session." />;
+    return (
+      <WaitingScreen
+        code={code}
+        message="Waiting for the facilitator to open the session."
+      />
+    );
   }
 
   if (participantResolved && session?.status === "closed") {
@@ -67,7 +70,7 @@ export default function SessionVotePage({
   }
 
   return (
-    <VotingView
+    <VotingFlow
       code={code}
       session={session}
       participantId={participantInfo.id}
@@ -106,7 +109,7 @@ function WaitingScreen({ code, message }: { code: string; message: string }) {
   );
 }
 
-function VotingView({
+function VotingFlow({
   code,
   session,
   participantId,
@@ -124,38 +127,30 @@ function VotingView({
     .map((id) => data.concepts.find((c) => c.id === id))
     .filter((c): c is NonNullable<typeof c> => Boolean(c));
 
-  // The participant's persisted votes from the store, as a stable string key.
-  // We compare by string (sorted entries) instead of by reference to avoid
-  // re-syncing local state when the store re-emits the same data.
-  const persistedKey = useMemo(() => {
+  // Persisted votes from the store, as a stable sorted string key.
+  const persistedEntries = useMemo(() => {
     const map = votesByParticipant(data.votes, session.id, participantId);
-    return Array.from(map.entries())
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([k, v]) => `${k}=${v}`)
-      .join("|");
+    return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
   }, [data.votes, session.id, participantId]);
+  const persistedKey = useMemo(
+    () => persistedEntries.map(([k, v]) => `${k}=${v}`).join("|"),
+    [persistedEntries]
+  );
 
-  // Local mutable vote map. Seeded from persisted on first render via lazy init.
+  // Local vote state — seeded from persisted on first render.
   const [votes, setVotes] = useState<Map<string, "yes" | "no">>(() => {
-    const map = votesByParticipant(data.votes, session.id, participantId);
-    return new Map(map);
+    return new Map(persistedEntries);
   });
   const [submitted, setSubmitted] = useState(false);
-  const [filter, setFilter] = useState<"all" | "yes" | "no" | "unvoted">("all");
 
-  // If persisted votes change (e.g. another tab, or after a re-open), re-sync.
+  // Re-sync if persisted votes change from another tab / reopen.
   useEffect(() => {
-    const map = votesByParticipant(data.votes, session.id, participantId);
-    setVotes(new Map(map));
-    // We intentionally depend on persistedKey (a stable string) rather than
-    // data.votes — the latter changes reference whenever the store updates
-    // anything, including this user's own votes.
+    setVotes(new Map(persistedEntries));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [persistedKey]);
 
-  const yesCount = Array.from(votes.values()).filter((v) => v === "yes").length;
   const cap = session.yesCap ?? DEFAULT_YES_CAP;
-  const remaining = Math.max(0, cap - yesCount);
+  const yesCount = Array.from(votes.values()).filter((v) => v === "yes").length;
   const atCap = yesCount >= cap;
 
   function setVote(conceptId: string, value: "yes" | "no") {
@@ -175,138 +170,44 @@ function VotingView({
     });
   }
 
+  function clearVoteLocal(conceptId: string) {
+    setVotes((prev) => {
+      if (!prev.has(conceptId)) return prev;
+      const next = new Map(prev);
+      next.delete(conceptId);
+      return next;
+    });
+  }
+
   function handleSubmit() {
     // Write all current votes to store.
     for (const [conceptId, value] of votes.entries()) {
       store.castVote(session.id, participantId, conceptId, value);
     }
     // Clear any persisted votes the user removed.
-    const currentMap = votesByParticipant(data.votes, session.id, participantId);
-    for (const conceptId of currentMap.keys()) {
+    for (const [conceptId, value] of persistedEntries) {
       if (!votes.has(conceptId)) {
         store.clearVote(session.id, participantId, conceptId);
       }
+      void value;
     }
     setSubmitted(true);
     onSubmitted();
   }
 
-  const filteredConcepts = concepts.filter((c) => {
-    if (filter === "all") return true;
-    const v = votes.get(c.id);
-    if (filter === "yes") return v === "yes";
-    if (filter === "no") return v === "no";
-    return !v;
-  });
-
   return (
-    <div className="mx-auto max-w-6xl px-6 py-8">
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-zinc-200 bg-white p-4">
-        <div>
-          <p className="font-mono text-sm text-zinc-500">Session {code}</p>
-          <p className="text-sm text-zinc-700">
-            Voting as <strong>{alias}</strong>
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="rounded-md bg-zinc-100 px-3 py-1.5 text-sm">
-            Yes votes:{" "}
-            <strong className={atCap ? "text-red-700" : "text-zinc-900"}>
-              {yesCount} / {cap}
-            </strong>
-          </div>
-          {!submitted && (
-            <button
-              onClick={handleSubmit}
-              className="rounded-md bg-zinc-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-zinc-700"
-            >
-              Submit & see results
-            </button>
-          )}
-        </div>
-      </div>
-
-      <div className="mt-4 flex flex-wrap gap-2 text-sm">
-        {(["all", "unvoted", "yes", "no"] as const).map((f) => (
-          <button
-            key={f}
-            onClick={() => setFilter(f)}
-            className={`rounded-md border px-3 py-1 ${
-              filter === f
-                ? "border-zinc-900 bg-zinc-900 text-white"
-                : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50"
-            }`}
-          >
-            {f === "all"
-              ? `All (${concepts.length})`
-              : f === "unvoted"
-                ? `Unvoted (${concepts.length - votes.size})`
-                : f === "yes"
-                  ? `Yes (${yesCount})`
-                  : `No (${votes.size - yesCount})`}
-          </button>
-        ))}
-      </div>
-
-      <p className="mt-2 text-xs text-zinc-500">
-        {atCap
-          ? "You've reached the 30-Yes cap. Additional Yes votes are blocked until you un-vote some."
-          : `${remaining} Yes votes remaining.`}
-      </p>
-
-      <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {filteredConcepts.map((c) => {
-          const v = votes.get(c.id);
-          const blockedYes = atCap && v !== "yes";
-          return (
-            <div
-              key={c.id}
-              className="flex flex-col rounded-lg border border-zinc-200 bg-white p-4"
-            >
-              <div className="flex-1">
-                <h3 className="text-sm font-semibold text-zinc-900">{c.name}</h3>
-                {c.category && (
-                  <p className="text-xs text-zinc-500">{c.category}</p>
-                )}
-                {c.description && (
-                  <p className="mt-2 text-xs text-zinc-600">{c.description}</p>
-                )}
-              </div>
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                <button
-                  disabled={submitted || blockedYes}
-                  onClick={() => setVote(c.id, "yes")}
-                  className={`rounded-md px-3 py-1.5 text-sm font-medium ${
-                    v === "yes"
-                      ? "bg-green-600 text-white"
-                      : "border border-green-300 bg-white text-green-800 hover:bg-green-50 disabled:opacity-50"
-                  }`}
-                >
-                  Yes
-                </button>
-                <button
-                  disabled={submitted}
-                  onClick={() => setVote(c.id, "no")}
-                  className={`rounded-md px-3 py-1.5 text-sm font-medium ${
-                    v === "no"
-                      ? "bg-red-600 text-white"
-                      : "border border-red-300 bg-white text-red-800 hover:bg-red-50"
-                  }`}
-                >
-                  No
-                </button>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {filteredConcepts.length === 0 && (
-        <p className="mt-12 text-center text-sm text-zinc-500">
-          No concepts match the current filter.
-        </p>
-      )}
-    </div>
+    <OneAtATime
+      code={code}
+      concepts={concepts}
+      votes={votes}
+      setVote={setVote}
+      clearVote={clearVoteLocal}
+      yesCount={yesCount}
+      cap={cap}
+      atCap={atCap}
+      alias={alias}
+      onSubmit={handleSubmit}
+    />
   );
 }
 
@@ -314,4 +215,331 @@ function countYes(m: Map<string, "yes" | "no">): number {
   let n = 0;
   for (const v of m.values()) if (v === "yes") n++;
   return n;
+}
+
+function OneAtATime({
+  code,
+  concepts,
+  votes,
+  setVote,
+  clearVote,
+  yesCount,
+  cap,
+  atCap,
+  alias,
+  onSubmit,
+}: {
+  code: string;
+  concepts: import("@/lib/types").Concept[];
+  votes: Map<string, "yes" | "no">;
+  setVote: (conceptId: string, value: "yes" | "no") => void;
+  clearVote: (conceptId: string) => void;
+  yesCount: number;
+  cap: number;
+  atCap: boolean;
+  alias: string;
+  onSubmit: () => void;
+}) {
+  const [index, setIndex] = useState(0);
+  const [summaryMode, setSummaryMode] = useState(false);
+
+  // Keyboard shortcuts: Y / N for Yes / No, ← / → for prev / next.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (summaryMode) return;
+      const target = e.target as HTMLElement;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
+      if (e.key === "y" || e.key === "Y") {
+        const c = concepts[index];
+        if (c) setVote(c.id, "yes");
+      } else if (e.key === "n" || e.key === "N") {
+        const c = concepts[index];
+        if (c) setVote(c.id, "no");
+      } else if (e.key === "ArrowLeft") {
+        setIndex((i) => Math.max(0, i - 1));
+      } else if (e.key === "ArrowRight") {
+        if (index === concepts.length - 1) setSummaryMode(true);
+        else setIndex((i) => Math.min(concepts.length - 1, i + 1));
+      } else if (e.key === "Enter") {
+        if (index === concepts.length - 1) setSummaryMode(true);
+        else setIndex((i) => Math.min(concepts.length - 1, i + 1));
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [concepts, index, setVote, summaryMode]);
+
+  if (summaryMode) {
+    return (
+      <SummaryScreen
+        code={code}
+        concepts={concepts}
+        votes={votes}
+        setVote={setVote}
+        clearVote={clearVote}
+        yesCount={yesCount}
+        cap={cap}
+        atCap={atCap}
+        alias={alias}
+        onBack={() => setSummaryMode(false)}
+        onSubmit={onSubmit}
+      />
+    );
+  }
+
+  const current = concepts[index];
+  const voted = current ? votes.get(current.id) : undefined;
+  const total = concepts.length;
+
+  return (
+    <div className="mx-auto max-w-2xl px-6 py-10">
+      <div className="flex items-center justify-between text-sm">
+        <span className="font-mono text-zinc-500">{code}</span>
+        <span className="text-zinc-500">
+          Concept {index + 1} of {total}
+        </span>
+      </div>
+
+      {/* Progress bar */}
+      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-zinc-200">
+        <div
+          className="h-full bg-zinc-900 transition-all"
+          style={{ width: `${((index + 1) / total) * 100}%` }}
+        />
+      </div>
+
+      {/* Yes counter */}
+      <div className="mt-3 text-xs text-zinc-500">
+        Voting as <strong className="text-zinc-700">{alias}</strong> · Yes votes:{" "}
+        <strong className={atCap ? "text-red-700" : "text-zinc-900"}>
+          {yesCount} / {cap}
+        </strong>
+        {atCap && (
+          <span className="ml-2 rounded bg-red-100 px-1.5 py-0.5 text-red-700">
+            cap reached
+          </span>
+        )}
+      </div>
+
+      {/* The concept card */}
+      {current && (
+        <div className="mt-6 rounded-2xl border border-zinc-200 bg-white p-8 shadow-sm">
+          <div className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+            {current.category ?? "Concept"}
+          </div>
+          <h2 className="mt-2 text-3xl font-bold text-zinc-900">{current.name}</h2>
+          {current.description && (
+            <p className="mt-4 text-base text-zinc-600">{current.description}</p>
+          )}
+          {current.imageUrl && (
+            <img
+              src={current.imageUrl}
+              alt={current.name}
+              className="mt-6 max-h-64 rounded-lg object-cover"
+            />
+          )}
+          <div className="mt-8 flex items-center justify-between text-xs text-zinc-400">
+            <span>Keyboard: Y / N · ← / →</span>
+            {voted && (
+              <span className="text-zinc-600">
+                You voted <strong>{voted.toUpperCase()}</strong>
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Action buttons */}
+      <div className="mt-6 grid grid-cols-2 gap-3">
+        <button
+          onClick={() => current && setVote(current.id, "yes")}
+          disabled={voted === "yes" || atCap}
+          className={`rounded-xl px-4 py-4 text-base font-semibold transition ${
+            voted === "yes"
+              ? "bg-green-600 text-white"
+              : "border-2 border-green-600 bg-white text-green-700 hover:bg-green-50 disabled:opacity-50"
+          }`}
+        >
+          Yes <span className="ml-2 text-xs font-normal opacity-70">(Y)</span>
+        </button>
+        <button
+          onClick={() => current && setVote(current.id, "no")}
+          className={`rounded-xl px-4 py-4 text-base font-semibold transition ${
+            voted === "no"
+              ? "bg-red-600 text-white"
+              : "border-2 border-red-600 bg-white text-red-700 hover:bg-red-50"
+          }`}
+        >
+          No <span className="ml-2 text-xs font-normal opacity-70">(N)</span>
+        </button>
+      </div>
+
+      {/* Navigation */}
+      <div className="mt-6 flex items-center justify-between">
+        <button
+          onClick={() => setIndex((i) => Math.max(0, i - 1))}
+          disabled={index === 0}
+          className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+        >
+          ← Back
+        </button>
+        {index < total - 1 ? (
+          <button
+            onClick={() => setIndex((i) => Math.min(total - 1, i + 1))}
+            className="rounded-md bg-zinc-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-zinc-700"
+          >
+            Next →
+          </button>
+        ) : (
+          <button
+            onClick={() => setSummaryMode(true)}
+            className="rounded-md bg-zinc-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-zinc-700"
+          >
+            Review & submit →
+          </button>
+        )}
+      </div>
+
+      <button
+        onClick={() => setSummaryMode(true)}
+        className="mt-3 block w-full text-center text-xs text-zinc-500 hover:underline"
+      >
+        Skip to summary
+      </button>
+    </div>
+  );
+}
+
+function SummaryScreen({
+  code,
+  concepts,
+  votes,
+  setVote,
+  clearVote,
+  yesCount,
+  cap,
+  atCap,
+  alias,
+  onBack,
+  onSubmit,
+}: {
+  code: string;
+  concepts: import("@/lib/types").Concept[];
+  votes: Map<string, "yes" | "no">;
+  setVote: (conceptId: string, value: "yes" | "no") => void;
+  clearVote: (conceptId: string) => void;
+  yesCount: number;
+  cap: number;
+  atCap: boolean;
+  alias: string;
+  onBack: () => void;
+  onSubmit: () => void;
+}) {
+  const noCount = Array.from(votes.values()).filter((v) => v === "no").length;
+  const skippedCount = concepts.length - votes.size;
+
+  return (
+    <div className="mx-auto max-w-3xl px-6 py-10">
+      <div className="flex items-center justify-between">
+        <Link
+          href={`/join`}
+          className="text-sm text-zinc-500 hover:underline"
+        >
+          Cancel
+        </Link>
+        <span className="font-mono text-sm text-zinc-500">{code}</span>
+      </div>
+      <h1 className="mt-2 text-2xl font-bold">Review your votes</h1>
+      <p className="mt-1 text-sm text-zinc-600">
+        Voting as <strong>{alias}</strong> ·{" "}
+        <strong className={atCap ? "text-red-700" : "text-zinc-900"}>
+          {yesCount} yes / {cap}
+        </strong>{" "}
+        · {noCount} no · {skippedCount} skipped
+      </p>
+
+      <div className="mt-6 overflow-hidden rounded-lg border border-zinc-200 bg-white">
+        <table className="min-w-full divide-y divide-zinc-200 text-sm">
+          <thead className="bg-zinc-50 text-left text-xs font-medium uppercase tracking-wide text-zinc-500">
+            <tr>
+              <th className="px-3 py-2">#</th>
+              <th className="px-3 py-2">Concept</th>
+              <th className="px-3 py-2 text-center">Yes</th>
+              <th className="px-3 py-2 text-center">No</th>
+              <th className="px-3 py-2 text-center">Skip</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-zinc-100">
+            {concepts.map((c, idx) => {
+              const v = votes.get(c.id);
+              return (
+                <tr key={c.id}>
+                  <td className="px-3 py-2 font-mono text-xs text-zinc-400">
+                    {idx + 1}
+                  </td>
+                  <td className="px-3 py-2">
+                    <div className="font-medium text-zinc-900">{c.name}</div>
+                    {c.category && (
+                      <div className="text-xs text-zinc-500">{c.category}</div>
+                    )}
+                  </td>
+                  <td className="px-3 py-2 text-center">
+                    <button
+                      onClick={() => setVote(c.id, "yes")}
+                      className={`rounded-md px-3 py-1 text-xs font-medium ${
+                        v === "yes"
+                          ? "bg-green-600 text-white"
+                          : "border border-green-300 text-green-700 hover:bg-green-50"
+                      }`}
+                    >
+                      Yes
+                    </button>
+                  </td>
+                  <td className="px-3 py-2 text-center">
+                    <button
+                      onClick={() => setVote(c.id, "no")}
+                      className={`rounded-md px-3 py-1 text-xs font-medium ${
+                        v === "no"
+                          ? "bg-red-600 text-white"
+                          : "border border-red-300 text-red-700 hover:bg-red-50"
+                      }`}
+                    >
+                      No
+                    </button>
+                  </td>
+                  <td className="px-3 py-2 text-center">
+                    <button
+                      onClick={() => clearVote(c.id)}
+                      className={`rounded-md px-3 py-1 text-xs font-medium ${
+                        !v
+                          ? "bg-zinc-700 text-white"
+                          : "border border-zinc-300 text-zinc-700 hover:bg-zinc-50"
+                      }`}
+                    >
+                      Skip
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="mt-6 flex items-center justify-between">
+        <button
+          onClick={onBack}
+          className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+        >
+          ← Back to voting
+        </button>
+        <button
+          onClick={onSubmit}
+          className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700"
+        >
+          Submit & see results
+        </button>
+      </div>
+    </div>
+  );
 }

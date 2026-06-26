@@ -1,26 +1,24 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useStore } from "@/lib/hooks";
 import { store } from "@/lib/store";
+import { parseBulkConcepts, splitDuplicates } from "@/lib/bulkParse";
+
+const DEFAULT_YES_CAP = 10;
 
 export default function NewSessionPage() {
   const router = useRouter();
   const data = useStore();
-  // Default to "existing" mode if there are any customers, "new" otherwise.
-  // useState initializer runs once with the server snapshot (always empty),
-  // so we instead use an effect to set the initial mode once data arrives.
+
+  // Customer mode (existing vs new) — initialized after data loads.
   const [customerMode, setCustomerMode] = useState<"existing" | "new">("new");
   const [customerId, setCustomerId] = useState<string>("");
   const [initialized, setInitialized] = useState(false);
   const [newCustomerName, setNewCustomerName] = useState("");
 
-  // Once client-side data is loaded, default to existing-customer mode if any exist.
-  // Note: we only mark `initialized` once we've seen non-empty data, so the
-  // server-snapshot-then-client-snapshot transition doesn't lock us into
-  // "new" mode prematurely.
   useEffect(() => {
     if (initialized) return;
     if (data.customers.length === 0) return;
@@ -28,13 +26,19 @@ export default function NewSessionPage() {
     setCustomerId(data.customers[0].id);
     setInitialized(true);
   }, [data.customers, initialized]);
+
   const [date, setDate] = useState<string>(new Date().toISOString().slice(0, 10));
   const [includeSuppressed, setIncludeSuppressed] = useState(false);
   const [conceptSearch, setConceptSearch] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [created, setCreated] = useState<string | null>(null);
   const [openAfter, setOpenAfter] = useState(true);
+  const [yesCap, setYesCap] = useState<number>(DEFAULT_YES_CAP);
   const [error, setError] = useState<string | null>(null);
+
+  // Bulk-paste state
+  const [bulkText, setBulkText] = useState("");
+  const [bulkPreviewOpen, setBulkPreviewOpen] = useState(false);
 
   const effectiveCustomerId = customerMode === "new" ? null : customerId;
   const visibleConcepts = data.concepts.filter((c) => {
@@ -51,6 +55,17 @@ export default function NewSessionPage() {
     return true;
   });
 
+  // Compute bulk-paste preview: how many are new, how many duplicate
+  const bulkPreview = useMemo(() => {
+    if (!bulkText.trim()) return null;
+    const { parsed, errors } = parseBulkConcepts(bulkText);
+    const { unique, duplicates } = splitDuplicates(
+      parsed,
+      data.concepts.map((c) => c.name)
+    );
+    return { parsed, errors, unique, duplicates };
+  }, [bulkText, data.concepts]);
+
   function toggle(id: string) {
     const next = new Set(selected);
     if (next.has(id)) next.delete(id);
@@ -63,6 +78,19 @@ export default function NewSessionPage() {
   }
   function clearAll() {
     setSelected(new Set());
+  }
+
+  function applyBulkParsed() {
+    if (!bulkPreview) return;
+    // Create the unique concepts in the library.
+    const created = store.bulkCreateConcepts(bulkPreview.unique);
+    // Auto-select the newly-created concepts for this session.
+    const next = new Set(selected);
+    for (const c of created) next.add(c.id);
+    setSelected(next);
+    // Clear the bulk textarea.
+    setBulkText("");
+    setBulkPreviewOpen(false);
   }
 
   function handleCreate(e: React.FormEvent) {
@@ -93,11 +121,16 @@ export default function NewSessionPage() {
       return;
     }
 
+    if (yesCap < 1 || yesCap > selected.size) {
+      setError(`Yes cap must be between 1 and ${selected.size} (the number of selected concepts).`);
+      return;
+    }
+
     const session = store.createSession({
       customerId: finalCustomerId,
       date,
       conceptIds: Array.from(selected),
-      yesCap: 10, // TODO: replace with form input in task 16
+      yesCap,
     });
 
     if (openAfter) store.updateSession(session.id, { status: "open" });
@@ -132,7 +165,7 @@ export default function NewSessionPage() {
               View results
             </Link>
             <Link
-              href="/admin"
+              href={`/admin/sessions`}
               className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
             >
               Back to admin
@@ -154,9 +187,9 @@ export default function NewSessionPage() {
   }
 
   return (
-    <div className="mx-auto max-w-4xl px-6 py-10">
-      <Link href="/admin" className="text-sm text-zinc-500 hover:underline">
-        ← Back to admin
+    <div className="mx-auto max-w-4xl px-6 py-8">
+      <Link href="/admin/sessions" className="text-sm text-zinc-500 hover:underline">
+        ← Back to sessions
       </Link>
       <h1 className="mt-2 text-2xl font-bold">New session</h1>
 
@@ -208,15 +241,125 @@ export default function NewSessionPage() {
           </div>
         </div>
 
-        {/* Date */}
+        {/* Date + Yes cap */}
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="rounded-lg border border-zinc-200 bg-white p-4">
+            <h2 className="text-sm font-semibold text-zinc-700">Session date</h2>
+            <input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              className="mt-3 rounded-md border border-zinc-300 px-3 py-1.5 text-sm"
+            />
+          </div>
+          <div className="rounded-lg border border-zinc-200 bg-white p-4">
+            <h2 className="text-sm font-semibold text-zinc-700">
+              Yes cap per participant
+            </h2>
+            <div className="mt-3 flex items-center gap-2">
+              <input
+                type="number"
+                min={1}
+                max={Math.max(1, selected.size)}
+                value={yesCap}
+                onChange={(e) => setYesCap(parseInt(e.target.value, 10) || 1)}
+                className="w-20 rounded-md border border-zinc-300 px-3 py-1.5 text-sm"
+              />
+              <span className="text-xs text-zinc-500">
+                (1–{Math.max(1, selected.size)} based on concepts selected)
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Bulk paste */}
         <div className="rounded-lg border border-zinc-200 bg-white p-4">
-          <h2 className="text-sm font-semibold text-zinc-700">Session date</h2>
-          <input
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            className="mt-3 rounded-md border border-zinc-300 px-3 py-1.5 text-sm"
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-zinc-700">
+              Bulk paste concepts
+            </h2>
+            <button
+              type="button"
+              onClick={() => setBulkPreviewOpen((v) => !v)}
+              className="text-xs text-blue-700 hover:underline"
+            >
+              {bulkPreviewOpen ? "Hide preview" : "Preview"}
+            </button>
+          </div>
+          <p className="mt-1 text-xs text-zinc-500">
+            One per line. Optional <span className="font-mono">|</span> separators for
+            category and description:{" "}
+            <code className="rounded bg-zinc-100 px-1 py-0.5">
+              Name | Category | Description
+            </code>
+            . Lines starting with # are ignored.
+          </p>
+          <textarea
+            value={bulkText}
+            onChange={(e) => setBulkText(e.target.value)}
+            placeholder={`Spicy Maple BBQ | Sauces | Smoky-sweet with real maple syrup\nKorean Gochujang Glaze | Sauces\nCajun Lime Butter | Drizzles`}
+            rows={5}
+            className="mt-3 w-full rounded-md border border-zinc-300 px-3 py-2 font-mono text-xs focus:border-zinc-900 focus:outline-none"
           />
+          {bulkPreviewOpen && bulkPreview && (
+            <div className="mt-3 rounded-md border border-zinc-100 bg-zinc-50 p-3 text-sm">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="font-medium text-green-800">
+                    {bulkPreview.unique.length} new
+                  </span>
+                  {bulkPreview.duplicates.length > 0 && (
+                    <>
+                      {" "}
+                      ·{" "}
+                      <span className="text-amber-800">
+                        {bulkPreview.duplicates.length} duplicate
+                      </span>
+                    </>
+                  )}
+                  {bulkPreview.errors.length > 0 && (
+                    <>
+                      {" "}
+                      ·{" "}
+                      <span className="text-red-800">
+                        {bulkPreview.errors.length} error
+                        {bulkPreview.errors.length === 1 ? "" : "s"}
+                      </span>
+                    </>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={applyBulkParsed}
+                  disabled={bulkPreview.unique.length === 0}
+                  className="rounded-md bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-700 disabled:opacity-50"
+                >
+                  Add {bulkPreview.unique.length} to library & select
+                </button>
+              </div>
+              {bulkPreview.errors.length > 0 && (
+                <ul className="mt-2 space-y-1 text-xs text-red-800">
+                  {bulkPreview.errors.map((e, i) => (
+                    <li key={i}>
+                      Line {e.line}: {e.reason} {e.text && `— "${e.text}"`}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {bulkPreview.duplicates.length > 0 && (
+                <details className="mt-2">
+                  <summary className="cursor-pointer text-xs text-amber-800">
+                    Duplicates ({bulkPreview.duplicates.length})
+                  </summary>
+                  <ul className="mt-1 ml-4 list-disc text-xs text-zinc-600">
+                    {bulkPreview.duplicates.map((d, i) => (
+                      <li key={i}>{d.name}</li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Concepts */}
@@ -265,7 +408,8 @@ export default function NewSessionPage() {
 
           {visibleConcepts.length === 0 ? (
             <p className="mt-6 text-sm text-zinc-500">
-              No concepts match. Try clearing the search or adding concepts in{" "}
+              No concepts match. Try clearing the search, adding concepts via bulk
+              paste above, or visit{" "}
               <Link href="/admin/concepts" className="text-blue-700 hover:underline">
                 Manage concepts
               </Link>
@@ -330,7 +474,7 @@ export default function NewSessionPage() {
           </button>
           <button
             type="button"
-            onClick={() => router.push("/admin")}
+            onClick={() => router.push("/admin/sessions")}
             className="rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
           >
             Cancel
