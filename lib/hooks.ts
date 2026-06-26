@@ -4,7 +4,7 @@
 // Re-renders whenever data changes in this tab or another.
 
 import { useSyncExternalStore } from "react";
-import { load, subscribe } from "./store";
+import { getSnapshot, subscribe } from "./store";
 import { DataState } from "./types";
 
 const SERVER_SNAPSHOT: DataState = {
@@ -17,13 +17,9 @@ const SERVER_SNAPSHOT: DataState = {
 };
 
 export function useStore(): DataState {
-  // useSyncExternalStore gives us a clean SSR-safe pattern:
-  //  - getServerSnapshot returns the empty state during SSR
-  //  - getSnapshot returns the current localStorage state on the client
-  //  - subscribe wires up cross-tab and same-tab updates
   return useSyncExternalStore(
     (cb) => subscribe(cb),
-    () => load(),
+    () => getSnapshot(),
     () => SERVER_SNAPSHOT
   );
 }

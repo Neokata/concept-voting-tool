@@ -1,7 +1,7 @@
+"use client";
+
 // localStorage-backed store for the POC.
 // Single namespaced key, schema-versioned. On corrupt data: log + reset to empty.
-
-"use client";
 
 import { DataState, Session, Concept, Customer, Participant, Vote } from "./types";
 import { seedIfEmpty } from "./seed";
@@ -21,6 +21,15 @@ function isBrowser(): boolean {
   return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
 }
 
+// ---------- Snapshot cache ----------
+//
+// useSyncExternalStore requires getSnapshot to return a stable reference
+// when the data hasn't changed. We hold a cached snapshot and only re-parse
+// when something tells us storage changed (storage event, our own mutation).
+
+let cachedSnapshot: DataState = empty;
+let snapshotInitialized = false;
+
 function readRaw(): DataState {
   if (!isBrowser()) return empty;
   try {
@@ -31,7 +40,6 @@ function readRaw(): DataState {
       console.warn("[store] schema version mismatch — resetting");
       return empty;
     }
-    // Minimal shape check; if anything's missing, treat as empty rather than crash.
     if (
       !Array.isArray(parsed.concepts) ||
       !Array.isArray(parsed.customers) ||
@@ -49,7 +57,31 @@ function readRaw(): DataState {
   }
 }
 
+/** Initialize the cache from localStorage. Called once on the client. */
+function ensureSnapshot(): void {
+  if (snapshotInitialized) return;
+  cachedSnapshot = readRaw();
+  // Seed once, if needed. writeRaw will update cachedSnapshot directly.
+  const seeded = seedIfEmpty(cachedSnapshot);
+  if (seeded !== cachedSnapshot) {
+    writeRaw(seeded);
+  } else {
+    snapshotInitialized = true;
+  }
+}
+
+/**
+ * Read-side for useSyncExternalStore. Returns the same reference until
+ * the store actually changes.
+ */
+export function getSnapshot(): DataState {
+  ensureSnapshot();
+  return cachedSnapshot;
+}
+
 function writeRaw(state: DataState): void {
+  cachedSnapshot = state;
+  snapshotInitialized = true;
   if (!isBrowser()) return;
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -60,12 +92,10 @@ function writeRaw(state: DataState): void {
   }
 }
 
-/** Load state, seeding example data on first visit. Idempotent. */
-export function load(): DataState {
-  const state = readRaw();
-  const seeded = seedIfEmpty(state);
-  if (seeded !== state) writeRaw(seeded);
-  return seeded;
+/** Force a fresh read from localStorage (e.g. on storage events). */
+function refreshFromStorage(): void {
+  cachedSnapshot = readRaw();
+  snapshotInitialized = true;
 }
 
 /** Replace the entire state. Use sparingly — prefer the targeted helpers below. */
@@ -106,7 +136,10 @@ const listeners = new Set<Listener>();
 
 if (typeof window !== "undefined") {
   window.addEventListener("storage", (e) => {
-    if (e.key === STORAGE_KEY) listeners.forEach((l) => l());
+    if (e.key === STORAGE_KEY) {
+      refreshFromStorage();
+      listeners.forEach((l) => l());
+    }
   });
   window.addEventListener("concept-voting:change", () => {
     listeners.forEach((l) => l());
@@ -115,7 +148,9 @@ if (typeof window !== "undefined") {
 
 export function subscribe(listener: Listener): () => void {
   listeners.add(listener);
-  return () => listeners.delete(listener);
+  return () => {
+    listeners.delete(listener);
+  };
 }
 
 // ---------- Targeted mutations ----------
@@ -123,9 +158,8 @@ export function subscribe(listener: Listener): () => void {
 export const store = {
   // Sessions
   createSession(input: Omit<Session, "id" | "code" | "createdAt" | "status"> & { code?: string }): Session {
-    const state = load();
+    const state = getSnapshot();
     const code = input.code ?? generateJoinCode();
-    // Ensure unique code
     const existing = new Set(state.sessions.map((s) => s.code));
     let finalCode = code;
     while (existing.has(finalCode)) finalCode = generateJoinCode();
@@ -138,24 +172,24 @@ export const store = {
       status: "draft",
       createdAt: new Date().toISOString(),
     };
-    save({ ...state, sessions: [...state.sessions, session] });
+    writeRaw({ ...state, sessions: [...state.sessions, session] });
     return session;
   },
 
   updateSession(id: string, patch: Partial<Session>): Session | null {
-    const state = load();
+    const state = getSnapshot();
     const idx = state.sessions.findIndex((s) => s.id === id);
     if (idx === -1) return null;
     const updated = { ...state.sessions[idx], ...patch };
     const sessions = [...state.sessions];
     sessions[idx] = updated;
-    save({ ...state, sessions });
+    writeRaw({ ...state, sessions });
     return updated;
   },
 
   deleteSession(id: string): void {
-    const state = load();
-    save({
+    const state = getSnapshot();
+    writeRaw({
       ...state,
       sessions: state.sessions.filter((s) => s.id !== id),
       votes: state.votes.filter((v) => v.sessionId !== id),
@@ -163,13 +197,13 @@ export const store = {
   },
 
   findSessionByCode(code: string): Session | null {
-    const state = load();
+    const state = getSnapshot();
     return state.sessions.find((s) => s.code === code.toUpperCase()) ?? null;
   },
 
   // Concepts
   createConcept(input: Omit<Concept, "id" | "createdAt" | "suppressedFor"> & { suppressedFor?: string[] }): Concept {
-    const state = load();
+    const state = getSnapshot();
     const concept: Concept = {
       id: newId(),
       name: input.name,
@@ -178,24 +212,24 @@ export const store = {
       suppressedFor: input.suppressedFor ?? [],
       createdAt: new Date().toISOString(),
     };
-    save({ ...state, concepts: [...state.concepts, concept] });
+    writeRaw({ ...state, concepts: [...state.concepts, concept] });
     return concept;
   },
 
   updateConcept(id: string, patch: Partial<Concept>): Concept | null {
-    const state = load();
+    const state = getSnapshot();
     const idx = state.concepts.findIndex((c) => c.id === id);
     if (idx === -1) return null;
     const updated = { ...state.concepts[idx], ...patch };
     const concepts = [...state.concepts];
     concepts[idx] = updated;
-    save({ ...state, concepts });
+    writeRaw({ ...state, concepts });
     return updated;
   },
 
   deleteConcept(id: string): void {
-    const state = load();
-    save({
+    const state = getSnapshot();
+    writeRaw({
       ...state,
       concepts: state.concepts.filter((c) => c.id !== id),
       sessions: state.sessions.map((s) => ({
@@ -208,24 +242,23 @@ export const store = {
 
   // Customers
   createCustomer(name: string): Customer {
-    const state = load();
+    const state = getSnapshot();
     const customer: Customer = { id: newId(), name, createdAt: new Date().toISOString() };
-    save({ ...state, customers: [...state.customers, customer] });
+    writeRaw({ ...state, customers: [...state.customers, customer] });
     return customer;
   },
 
   // Participants
   createParticipant(alias: string): Participant {
-    const state = load();
+    const state = getSnapshot();
     const participant: Participant = { id: newId(), alias, createdAt: new Date().toISOString() };
-    save({ ...state, participants: [...state.participants, participant] });
+    writeRaw({ ...state, participants: [...state.participants, participant] });
     return participant;
   },
 
   // Votes
   castVote(sessionId: string, participantId: string, conceptId: string, value: "yes" | "no"): void {
-    const state = load();
-    // Upsert: one vote per (session, participant, concept).
+    const state = getSnapshot();
     const others = state.votes.filter(
       (v) => !(v.sessionId === sessionId && v.participantId === participantId && v.conceptId === conceptId)
     );
@@ -236,12 +269,12 @@ export const store = {
       value,
       votedAt: new Date().toISOString(),
     };
-    save({ ...state, votes: [...others, vote] });
+    writeRaw({ ...state, votes: [...others, vote] });
   },
 
   clearVote(sessionId: string, participantId: string, conceptId: string): void {
-    const state = load();
-    save({
+    const state = getSnapshot();
+    writeRaw({
       ...state,
       votes: state.votes.filter(
         (v) => !(v.sessionId === sessionId && v.participantId === participantId && v.conceptId === conceptId)
@@ -251,6 +284,6 @@ export const store = {
 
   /** Wipe all data. Used by the export/import feature for a "reset" button. */
   resetAll(): void {
-    save(empty);
+    writeRaw(empty);
   },
 };
