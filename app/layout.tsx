@@ -14,24 +14,30 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Concept Voting Tool",
+  title: "CompetitorIQ — Concept Voting",
   description: "Run ideation sessions and surface the top concepts.",
 };
 
 function Nav() {
   return (
-    <header className="border-b border-zinc-200 bg-white">
+    <header className="bg-zinc-900 text-white shadow-md">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
-        <Link href="/" className="text-lg font-semibold tracking-tight">
-          Concept Voting
+        <Link
+          href="/"
+          className="text-xl font-extrabold tracking-tight text-white"
+        >
+          Competitor<span className="font-light italic">IQ</span>
         </Link>
-        <nav className="flex items-center gap-4 text-sm">
-          <Link href="/join" className="text-zinc-700 hover:text-zinc-900">
+        <nav className="flex items-center gap-2 text-sm">
+          <Link
+            href="/join"
+            className="rounded-md px-3 py-1.5 text-white/90 hover:bg-white/10 hover:text-white"
+          >
             Join session
           </Link>
           <Link
             href="/admin"
-            className="rounded-md bg-zinc-900 px-3 py-1.5 text-white hover:bg-zinc-700"
+            className="rounded-md bg-white/10 px-3 py-1.5 font-semibold text-white ring-1 ring-white/30 hover:bg-white/20"
           >
             Admin
           </Link>

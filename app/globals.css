@@ -1,26 +1,73 @@
 @import "tailwindcss";
 
+/* Brand: deep wine red, sampled from the CompetitorIQ screenshot. */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #faf8f5;        /* warm off-white */
+  --foreground: #1a1a1a;        /* near-black for body text */
+  --brand-wine: #7e1d2c;        /* primary wine */
+  --brand-wine-dark: #5e1622;   /* hover / pressed */
+  --brand-wine-light: #a13041;  /* accent / highlight */
+  --brand-cream: #faf8f5;       /* page background */
+  --brand-card: #ffffff;        /* card surfaces */
 }
 
 @theme inline {
+  /* Override zinc palette so every `bg-zinc-900`, `text-zinc-700`, etc.
+     in the app becomes wine. This is the single point of truth for the
+     theme. The tradeoff: body text and table labels also turn wine, but
+     that matches the screenshot's bold, saturated heading style. */
+  --color-zinc-50: #faf8f5;
+  --color-zinc-100: #f3eee9;
+  --color-zinc-200: #e8e0d8;
+  --color-zinc-300: #d4c8bd;
+  --color-zinc-400: #b9aa9d;
+  --color-zinc-500: #8a7c72;
+  --color-zinc-600: #5e5249;
+  --color-zinc-700: #3a302a;
+  --color-zinc-800: #2a221d;
+  --color-zinc-900: var(--brand-wine);
+  --color-zinc-950: var(--brand-wine-dark);
+
+  /* Brand-specific tokens. Use these in new code via arbitrary values:
+     bg-[var(--brand-wine)] etc. */
+  --color-brand-wine: var(--brand-wine);
+  --color-brand-wine-dark: var(--brand-wine-dark);
+  --color-brand-wine-light: var(--brand-wine-light);
+  --color-brand-cream: var(--brand-cream);
+  --color-brand-card: var(--brand-card);
+
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+body {
+  background: var(--brand-cream);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@layer components {
+  .btn-primary {
+    @apply inline-flex items-center justify-center rounded-md bg-zinc-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-zinc-800 disabled:opacity-50;
+  }
+  .btn-secondary {
+    @apply inline-flex items-center justify-center rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-50 disabled:opacity-50;
+  }
+  .btn-danger {
+    @apply inline-flex items-center justify-center rounded-md border border-red-300 bg-white px-4 py-2 text-sm font-semibold text-red-900 transition hover:bg-red-50;
+  }
+  .card {
+    @apply rounded-xl border border-zinc-200 bg-white p-5 shadow-sm;
+  }
+  .stat-label {
+    @apply text-xs font-semibold uppercase tracking-wide text-zinc-500;
+  }
+  .stat-number {
+    @apply text-3xl font-bold text-zinc-900;
+  }
+  .section-heading {
+    @apply text-lg font-bold text-zinc-900;
+  }
 }
