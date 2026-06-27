@@ -7,7 +7,6 @@ import { store } from "@/lib/store";
 
 export default function CustomersPage() {
   const data = useStore();
-  const [drillDownId, setDrillDownId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
   const [createError, setCreateError] = useState<string | null>(null);
@@ -51,7 +50,8 @@ export default function CustomersPage() {
     const c = store.createCustomer(name);
     setNewName("");
     setCreating(false);
-    setDrillDownId(c.id);
+    // Navigate to the new customer's detail page.
+    window.location.href = `/admin/customers/${c.id}`;
   }
 
   return (
@@ -76,10 +76,10 @@ export default function CustomersPage() {
       ) : (
         <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {summaries.map((s) => (
-            <button
+            <Link
               key={s.customer.id}
-              onClick={() => setDrillDownId(s.customer.id)}
-              className="group rounded-lg border border-zinc-200 bg-white p-4 text-left shadow-sm transition hover:border-zinc-400 hover:shadow"
+              href={`/admin/customers/${s.customer.id}`}
+              className="group rounded-lg border border-zinc-200 bg-white p-4 shadow-sm transition hover:border-zinc-400 hover:shadow"
             >
               <div className="text-lg font-semibold text-zinc-900">
                 {s.customer.name}
@@ -107,21 +107,11 @@ export default function CustomersPage() {
                 </div>
               </div>
               <p className="mt-3 text-xs text-zinc-400 group-hover:text-zinc-700">
-                Click to view sessions →
+                Click to view results →
               </p>
-            </button>
+            </Link>
           ))}
         </div>
-      )}
-
-      {drillDownId && (
-        <CustomerHistoryModal
-          customer={data.customers.find((c) => c.id === drillDownId)!}
-          sessions={data.sessions.filter((s) => s.customerId === drillDownId)}
-          votes={data.votes}
-          concepts={data.concepts}
-          onClose={() => setDrillDownId(null)}
-        />
       )}
 
       {creating && (
@@ -178,133 +168,6 @@ export default function CustomersPage() {
           </form>
         </div>
       )}
-    </div>
-  );
-}
-
-function CustomerHistoryModal({
-  customer,
-  sessions,
-  votes,
-  concepts,
-  onClose,
-}: {
-  customer: import("@/lib/types").Customer;
-  sessions: import("@/lib/types").Session[];
-  votes: import("@/lib/types").Vote[];
-  concepts: import("@/lib/types").Concept[];
-  onClose: () => void;
-}) {
-  // Sort newest first
-  const sorted = [...sessions].sort((a, b) => b.date.localeCompare(a.date));
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-      onClick={onClose}
-    >
-      <div
-        className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-xl bg-white p-6 shadow-lg"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h2 className="text-2xl font-bold text-zinc-900">{customer.name}</h2>
-            <p className="mt-1 text-sm text-zinc-600">
-              {sessions.length} session{sessions.length === 1 ? "" : "s"} ·{" "}
-              {votes.filter((v) => sessions.some((s) => s.id === v.sessionId)).length}{" "}
-              total votes
-            </p>
-          </div>
-          <button
-            onClick={onClose}
-            className="text-zinc-400 hover:text-zinc-700"
-            aria-label="Close"
-          >
-            ✕
-          </button>
-        </div>
-
-        <section className="mt-6">
-          <h3 className="text-sm font-semibold text-zinc-700">Sessions</h3>
-          {sorted.length === 0 ? (
-            <p className="mt-2 text-sm text-zinc-500">
-              No sessions with this customer yet.
-            </p>
-          ) : (
-            <ul className="mt-3 divide-y divide-zinc-100 rounded-lg border border-zinc-200">
-              {sorted.map((s) => {
-                const sessionVotes = votes.filter((v) => v.sessionId === s.id);
-                const yes = sessionVotes.filter((v) => v.value === "yes").length;
-                const no = sessionVotes.filter((v) => v.value === "no").length;
-                const participants = new Set(sessionVotes.map((v) => v.participantId))
-                  .size;
-                // Top 3 concepts in this session
-                const sessionConcepts = s.conceptIds
-                  .map((id) => concepts.find((c) => c.id === id))
-                  .filter((c): c is NonNullable<typeof c> => Boolean(c));
-                const tally = new Map<string, { yes: number }>();
-                for (const v of sessionVotes) {
-                  if (v.value !== "yes") continue;
-                  const t = tally.get(v.conceptId) ?? { yes: 0 };
-                  t.yes += 1;
-                  tally.set(v.conceptId, t);
-                }
-                const top3 = sessionConcepts
-                  .map((c) => ({ concept: c, yes: tally.get(c.id)?.yes ?? 0 }))
-                  .sort((a, b) => b.yes - a.yes)
-                  .slice(0, 3)
-                  .map((x) => x.concept.name);
-
-                return (
-                  <li key={s.id} className="px-4 py-3">
-                    <div className="flex items-center justify-between">
-                      <Link
-                        href={`/admin/sessions/${s.id}`}
-                        className="text-sm font-semibold text-zinc-900 hover:underline"
-                      >
-                        {formatDate(s.date)}
-                      </Link>
-                      <div className="flex items-center gap-2 text-xs">
-                        <span
-                          className={`rounded-full px-2 py-0.5 font-medium ${
-                            s.status === "open"
-                              ? "bg-green-100 text-green-800"
-                              : s.status === "closed"
-                                ? "bg-zinc-200 text-zinc-700"
-                                : "bg-zinc-100 text-zinc-700"
-                          }`}
-                        >
-                          {s.status}
-                        </span>
-                        <span className="font-mono text-zinc-500">{s.code}</span>
-                      </div>
-                    </div>
-                    <div className="mt-1 text-xs text-zinc-600">
-                      {sessionConcepts.length} concepts · {participants} participants ·{" "}
-                      {yes} yes / {no} no · Yes cap {s.yesCap}
-                    </div>
-                    {top3.length > 0 && (
-                      <div className="mt-2 text-xs text-zinc-600">
-                        <span className="font-medium">Top 3:</span> {top3.join(" · ")}
-                      </div>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </section>
-
-        <div className="mt-6 flex justify-end">
-          <button
-            onClick={onClose}
-            className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
-          >
-            Close
-          </button>
-        </div>
-      </div>
     </div>
   );
 }

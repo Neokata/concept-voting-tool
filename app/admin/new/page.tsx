@@ -40,6 +40,17 @@ export default function NewSessionPage() {
   const [bulkText, setBulkText] = useState("");
   const [bulkPreviewOpen, setBulkPreviewOpen] = useState(false);
 
+  // Auto-track yesCap to current selected.size when selections change.
+  // When the user changes which concepts are in the session, set the cap
+  // to match the new selection size. They can manually adjust the cap
+  // afterward if they want a different number.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (selected.size > 0 && yesCap !== selected.size) {
+      setYesCap(selected.size);
+    }
+  }, [selected.size]);
+
   const effectiveCustomerId = customerMode === "new" ? null : customerId;
   const visibleConcepts = data.concepts.filter((c) => {
     if (!includeSuppressed && effectiveCustomerId && c.suppressedFor.includes(effectiveCustomerId)) {

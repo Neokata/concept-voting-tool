@@ -10,6 +10,8 @@ import {
   customersShownTo,
 } from "@/lib/voting";
 
+type ResultsBucket = "all" | "top" | "bottom" | "never";
+
 export default function ConceptsPage() {
   const data = useStore();
   const stats = useMemo(
@@ -17,14 +19,92 @@ export default function ConceptsPage() {
     [data.concepts, data.sessions, data.votes]
   );
 
+  // Filter state
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const [shownToFilter, setShownToFilter] = useState<string>("all");
+  const [resultsBucket, setResultsBucket] = useState<ResultsBucket>("all");
+  const [minYes, setMinYes] = useState<string>("");
+  const [maxYes, setMaxYes] = useState<string>("");
+
   const [editingId, setEditingId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [drillDownId, setDrillDownId] = useState<string | null>(null);
 
+  // Unique categories, sorted.
+  const categories = useMemo(() => {
+    const set = new Set<string>();
+    for (const c of data.concepts) {
+      if (c.category) set.add(c.category);
+    }
+    return Array.from(set).sort();
+  }, [data.concepts]);
+
+  // Apply filters.
+  const visibleStats = useMemo(() => {
+    const min = minYes === "" ? null : parseInt(minYes, 10);
+    const max = maxYes === "" ? null : parseInt(maxYes, 10);
+
+    return stats.filter((s) => {
+      // Category filter
+      if (categoryFilter !== "all") {
+        if ((s.concept.category ?? "") !== categoryFilter) return false;
+      }
+      // Shown-to filter
+      if (shownToFilter !== "all") {
+        const wasShownTo = data.sessions.some(
+          (sess) =>
+            sess.customerId === shownToFilter &&
+            sess.conceptIds.includes(s.concept.id)
+        );
+        if (!wasShownTo) return false;
+      }
+      // Results bucket filter
+      const totalVotes = s.totalYes + s.totalNo;
+      if (resultsBucket === "never") {
+        if (totalVotes > 0) return false;
+      } else if (resultsBucket === "top") {
+        // ≥ 70% yes, with at least 1 vote
+        if (totalVotes === 0) return false;
+        if (s.totalYes / totalVotes < 0.7) return false;
+      } else if (resultsBucket === "bottom") {
+        // ≤ 30% yes, with at least 1 vote
+        if (totalVotes === 0) return false;
+        if (s.totalYes / totalVotes > 0.3) return false;
+      }
+      // Numeric range filter (combine with bucket via AND)
+      if (min !== null && !Number.isNaN(min) && s.totalYes < min) return false;
+      if (max !== null && !Number.isNaN(max) && s.totalYes > max) return false;
+      return true;
+    });
+  }, [stats, categoryFilter, shownToFilter, resultsBucket, minYes, maxYes, data.sessions]);
+
+  function clearFilters() {
+    setCategoryFilter("all");
+    setShownToFilter("all");
+    setResultsBucket("all");
+    setMinYes("");
+    setMaxYes("");
+  }
+
+  const filtersActive =
+    categoryFilter !== "all" ||
+    shownToFilter !== "all" ||
+    resultsBucket !== "all" ||
+    minYes !== "" ||
+    maxYes !== "";
+
   return (
     <div className="mx-auto max-w-6xl px-6 py-8">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Concepts ({data.concepts.length})</h1>
+        <h1 className="text-2xl font-bold">
+          Concepts ({visibleStats.length}
+          {visibleStats.length !== data.concepts.length && (
+            <span className="text-base font-normal text-zinc-500">
+              {" "}of {data.concepts.length}
+            </span>
+          )}
+          )
+        </h1>
         <button
           onClick={() => setCreating(true)}
           className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-700"
@@ -33,7 +113,93 @@ export default function ConceptsPage() {
         </button>
       </div>
 
-      <div className="mt-6 overflow-hidden rounded-lg border border-zinc-200 bg-white">
+      {/* Filters */}
+      <div className="mt-4 flex flex-wrap items-end gap-4 rounded-lg border border-zinc-200 bg-white p-4">
+        <div>
+          <label className="block text-xs font-medium text-zinc-600">Category</label>
+          <select
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+            className="mt-1 rounded-md border border-zinc-300 px-3 py-1.5 text-sm"
+          >
+            <option value="all">All categories</option>
+            {categories.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-zinc-600">
+            Shown to
+          </label>
+          <select
+            value={shownToFilter}
+            onChange={(e) => setShownToFilter(e.target.value)}
+            className="mt-1 rounded-md border border-zinc-300 px-3 py-1.5 text-sm"
+          >
+            <option value="all">Any customer</option>
+            {data.customers.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-zinc-600">
+            Results
+          </label>
+          <select
+            value={resultsBucket}
+            onChange={(e) => setResultsBucket(e.target.value as ResultsBucket)}
+            className="mt-1 rounded-md border border-zinc-300 px-3 py-1.5 text-sm"
+          >
+            <option value="all">All results</option>
+            <option value="top">Top performers (≥70% yes)</option>
+            <option value="bottom">Bottom performers (≤30% yes)</option>
+            <option value="never">Never voted on</option>
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-zinc-600">
+            Min yes votes
+          </label>
+          <input
+            type="number"
+            min={0}
+            value={minYes}
+            onChange={(e) => setMinYes(e.target.value)}
+            placeholder="0"
+            className="mt-1 w-20 rounded-md border border-zinc-300 px-3 py-1.5 text-sm"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-zinc-600">
+            Max yes votes
+          </label>
+          <input
+            type="number"
+            min={0}
+            value={maxYes}
+            onChange={(e) => setMaxYes(e.target.value)}
+            placeholder="∞"
+            className="mt-1 w-20 rounded-md border border-zinc-300 px-3 py-1.5 text-sm"
+          />
+        </div>
+        {filtersActive && (
+          <button
+            type="button"
+            onClick={clearFilters}
+            className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+          >
+            Clear filters
+          </button>
+        )}
+      </div>
+
+      <div className="mt-4 overflow-hidden rounded-lg border border-zinc-200 bg-white">
         <table className="min-w-full divide-y divide-zinc-200 text-sm">
           <thead className="bg-zinc-50 text-left text-xs font-medium uppercase tracking-wide text-zinc-500">
             <tr>
@@ -48,14 +214,16 @@ export default function ConceptsPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-100">
-            {stats.length === 0 && (
+            {visibleStats.length === 0 && (
               <tr>
                 <td colSpan={8} className="px-4 py-12 text-center text-zinc-500">
-                  No concepts yet. Click <strong>+ New concept</strong>.
+                  {data.concepts.length === 0
+                    ? "No concepts yet. Click + New concept."
+                    : "No concepts match the current filters."}
                 </td>
               </tr>
             )}
-            {stats.map((s) => {
+            {visibleStats.map((s) => {
               const shownTo = customersShownTo(s.concept, data.sessions, data.customers);
               const suppressedNames = s.concept.suppressedFor
                 .map((id) => data.customers.find((c) => c.id === id)?.name)

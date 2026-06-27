@@ -75,7 +75,6 @@ export default function SessionVotePage({
       session={session}
       participantId={participantInfo.id}
       alias={participantInfo.alias}
-      onSubmitted={() => router.push(`/results/${code}`)}
     />
   );
 }
@@ -114,13 +113,11 @@ function VotingFlow({
   session,
   participantId,
   alias,
-  onSubmitted,
 }: {
   code: string;
   session: import("@/lib/types").Session;
   participantId: string;
   alias: string;
-  onSubmitted: () => void;
 }) {
   const data = useStore();
   const concepts = session.conceptIds
@@ -170,29 +167,17 @@ function VotingFlow({
     });
   }
 
-  function clearVoteLocal(conceptId: string) {
-    setVotes((prev) => {
-      if (!prev.has(conceptId)) return prev;
-      const next = new Map(prev);
-      next.delete(conceptId);
-      return next;
-    });
-  }
-
   function handleSubmit() {
     // Write all current votes to store.
     for (const [conceptId, value] of votes.entries()) {
       store.castVote(session.id, participantId, conceptId, value);
     }
-    // Clear any persisted votes the user removed.
-    for (const [conceptId, value] of persistedEntries) {
-      if (!votes.has(conceptId)) {
-        store.clearVote(session.id, participantId, conceptId);
-      }
-      void value;
-    }
     setSubmitted(true);
-    onSubmitted();
+  }
+
+  if (submitted) {
+    const noCount = Array.from(votes.values()).filter((v) => v === "no").length;
+    return <ThankYouScreen code={code} alias={alias} yesCount={yesCount} noCount={noCount} />;
   }
 
   return (
@@ -201,7 +186,6 @@ function VotingFlow({
       concepts={concepts}
       votes={votes}
       setVote={setVote}
-      clearVote={clearVoteLocal}
       yesCount={yesCount}
       cap={cap}
       atCap={atCap}
@@ -222,7 +206,6 @@ function OneAtATime({
   concepts,
   votes,
   setVote,
-  clearVote,
   yesCount,
   cap,
   atCap,
@@ -233,7 +216,6 @@ function OneAtATime({
   concepts: import("@/lib/types").Concept[];
   votes: Map<string, "yes" | "no">;
   setVote: (conceptId: string, value: "yes" | "no") => void;
-  clearVote: (conceptId: string) => void;
   yesCount: number;
   cap: number;
   atCap: boolean;
@@ -242,6 +224,9 @@ function OneAtATime({
 }) {
   const [index, setIndex] = useState(0);
   const [summaryMode, setSummaryMode] = useState(false);
+
+  const total = concepts.length;
+  const allVoted = votes.size === total;
 
   // Keyboard shortcuts: Y / N for Yes / No, ← / → for prev / next.
   useEffect(() => {
@@ -258,16 +243,21 @@ function OneAtATime({
       } else if (e.key === "ArrowLeft") {
         setIndex((i) => Math.max(0, i - 1));
       } else if (e.key === "ArrowRight") {
+        // Only advance when this concept has a vote recorded.
+        const c = concepts[index];
+        if (!c || !votes.has(c.id)) return;
         if (index === concepts.length - 1) setSummaryMode(true);
         else setIndex((i) => Math.min(concepts.length - 1, i + 1));
       } else if (e.key === "Enter") {
+        const c = concepts[index];
+        if (!c || !votes.has(c.id)) return;
         if (index === concepts.length - 1) setSummaryMode(true);
         else setIndex((i) => Math.min(concepts.length - 1, i + 1));
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [concepts, index, setVote, summaryMode]);
+  }, [concepts, index, setVote, summaryMode, votes]);
 
   if (summaryMode) {
     return (
@@ -276,7 +266,6 @@ function OneAtATime({
         concepts={concepts}
         votes={votes}
         setVote={setVote}
-        clearVote={clearVote}
         yesCount={yesCount}
         cap={cap}
         atCap={atCap}
@@ -289,7 +278,7 @@ function OneAtATime({
 
   const current = concepts[index];
   const voted = current ? votes.get(current.id) : undefined;
-  const total = concepts.length;
+  const canAdvance = voted !== undefined;
 
   return (
     <div className="mx-auto max-w-2xl px-6 py-10">
@@ -386,26 +375,23 @@ function OneAtATime({
         {index < total - 1 ? (
           <button
             onClick={() => setIndex((i) => Math.min(total - 1, i + 1))}
-            className="rounded-md bg-zinc-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-zinc-700"
+            disabled={!canAdvance}
+            title={!canAdvance ? "Please vote Yes or No before advancing" : undefined}
+            className="rounded-md bg-zinc-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-50"
           >
             Next →
           </button>
         ) : (
           <button
             onClick={() => setSummaryMode(true)}
-            className="rounded-md bg-zinc-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-zinc-700"
+            disabled={!allVoted}
+            title={!allVoted ? "Please vote on every concept first" : undefined}
+            className="rounded-md bg-zinc-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-50"
           >
             Review & submit →
           </button>
         )}
       </div>
-
-      <button
-        onClick={() => setSummaryMode(true)}
-        className="mt-3 block w-full text-center text-xs text-zinc-500 hover:underline"
-      >
-        Skip to summary
-      </button>
     </div>
   );
 }
@@ -415,7 +401,6 @@ function SummaryScreen({
   concepts,
   votes,
   setVote,
-  clearVote,
   yesCount,
   cap,
   atCap,
@@ -427,7 +412,6 @@ function SummaryScreen({
   concepts: import("@/lib/types").Concept[];
   votes: Map<string, "yes" | "no">;
   setVote: (conceptId: string, value: "yes" | "no") => void;
-  clearVote: (conceptId: string) => void;
   yesCount: number;
   cap: number;
   atCap: boolean;
@@ -436,7 +420,7 @@ function SummaryScreen({
   onSubmit: () => void;
 }) {
   const noCount = Array.from(votes.values()).filter((v) => v === "no").length;
-  const skippedCount = concepts.length - votes.size;
+  const allVoted = votes.size === concepts.length;
 
   return (
     <div className="mx-auto max-w-3xl px-6 py-10">
@@ -455,7 +439,7 @@ function SummaryScreen({
         <strong className={atCap ? "text-red-700" : "text-zinc-900"}>
           {yesCount} yes / {cap}
         </strong>{" "}
-        · {noCount} no · {skippedCount} skipped
+        · {noCount} no
       </p>
 
       <div className="mt-6 overflow-hidden rounded-lg border border-zinc-200 bg-white">
@@ -466,7 +450,6 @@ function SummaryScreen({
               <th className="px-3 py-2">Concept</th>
               <th className="px-3 py-2 text-center">Yes</th>
               <th className="px-3 py-2 text-center">No</th>
-              <th className="px-3 py-2 text-center">Skip</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-100">
@@ -507,18 +490,6 @@ function SummaryScreen({
                       No
                     </button>
                   </td>
-                  <td className="px-3 py-2 text-center">
-                    <button
-                      onClick={() => clearVote(c.id)}
-                      className={`rounded-md px-3 py-1 text-xs font-medium ${
-                        !v
-                          ? "bg-zinc-700 text-white"
-                          : "border border-zinc-300 text-zinc-700 hover:bg-zinc-50"
-                      }`}
-                    >
-                      Skip
-                    </button>
-                  </td>
                 </tr>
               );
             })}
@@ -535,11 +506,44 @@ function SummaryScreen({
         </button>
         <button
           onClick={onSubmit}
-          className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700"
+          disabled={!allVoted}
+          title={!allVoted ? "You must vote Yes or No on every concept" : undefined}
+          className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-50"
         >
-          Submit & see results
+          Submit votes
         </button>
       </div>
+    </div>
+  );
+}
+
+function ThankYouScreen({
+  code,
+  alias,
+  yesCount,
+  noCount,
+}: {
+  code: string;
+  alias: string;
+  yesCount: number;
+  noCount: number;
+}) {
+  return (
+    <div className="mx-auto max-w-md px-6 py-24 text-center">
+      <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-green-100 text-green-700">
+        <span className="text-3xl">✓</span>
+      </div>
+      <h1 className="text-2xl font-bold text-zinc-900">Thanks for voting!</h1>
+      <p className="mt-3 text-sm text-zinc-600">
+        Your responses for session <span className="font-mono">{code}</span> have
+        been recorded as <strong>{alias}</strong>.
+      </p>
+      <p className="mt-1 text-xs text-zinc-500">
+        {yesCount} yes · {noCount} no
+      </p>
+      <p className="mt-6 text-xs text-zinc-500">
+        You can close this window.
+      </p>
     </div>
   );
 }
