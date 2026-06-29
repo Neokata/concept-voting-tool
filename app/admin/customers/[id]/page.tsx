@@ -4,6 +4,7 @@ import Link from "next/link";
 import { use, useMemo } from "react";
 import { useStore } from "@/lib/hooks";
 import { aggregateSession, sortResults } from "@/lib/voting";
+import { CustomerAvatar, longDate } from "@/lib/display";
 
 export default function CustomerDetailPage({
   params,
@@ -105,14 +106,17 @@ export default function CustomerDetailPage({
         ← Back to customers
       </Link>
 
-      <header className="mt-3 border-b border-zinc-200 pb-6">
-        <h1 className="text-3xl font-bold tracking-tight">{customer.name}</h1>
-        <p className="mt-1 text-sm text-zinc-600">
-          {sessions.length} session{sessions.length === 1 ? "" : "s"} ·{" "}
-          {totalParticipants} participant{totalParticipants === 1 ? "" : "s"} ·{" "}
-          {totalYes} yes / {totalNo} no ·{" "}
-          {allTimeTop.length} concept{allTimeTop.length === 1 ? "" : "s"} seen
-        </p>
+      <header className="mt-3 flex items-center gap-4 border-b border-zinc-200 pb-6">
+        <CustomerAvatar customer={customer} size="md" />
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight text-zinc-900">{customer.name}</h1>
+          <p className="mt-1 text-sm text-zinc-500">
+            {sessions.length} session{sessions.length === 1 ? "" : "s"} ·{" "}
+            {totalParticipants} participant{totalParticipants === 1 ? "" : "s"} ·{" "}
+            {totalYes} yes / {totalNo} no ·{" "}
+            {allTimeTop.length} concept{allTimeTop.length === 1 ? "" : "s"} seen
+          </p>
+        </div>
       </header>
 
       {/* All-time top */}

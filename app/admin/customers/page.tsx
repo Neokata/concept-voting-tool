@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useStore } from "@/lib/hooks";
 import { store } from "@/lib/store";
+import { CustomerAvatar, relativeDate } from "@/lib/display";
 
 export default function CustomersPage() {
   const data = useStore();
@@ -57,10 +58,17 @@ export default function CustomersPage() {
   return (
     <div className="mx-auto max-w-6xl px-6 py-8">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Customers ({data.customers.length})</h1>
+        <div>
+          <h1 className="page-heading">Customers</h1>
+          <p className="page-subheading">
+            {data.customers.length === 0
+              ? "Add a customer to start tracking their sessions."
+              : `${data.customers.length} customer${data.customers.length === 1 ? "" : "s"} in your library`}
+          </p>
+        </div>
         <button
           onClick={() => setCreating(true)}
-          className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-700"
+          className="btn-primary"
         >
           + New customer
         </button>
@@ -79,12 +87,27 @@ export default function CustomersPage() {
             <Link
               key={s.customer.id}
               href={`/admin/customers/${s.customer.id}`}
-              className="group rounded-lg border border-zinc-200 bg-white p-4 shadow-sm transition hover:border-zinc-400 hover:shadow"
+              className="group card p-4 transition hover:border-zinc-400 hover:shadow-md"
             >
-              <div className="text-lg font-semibold text-zinc-900">
-                {s.customer.name}
+              <div className="flex items-center gap-3">
+                <CustomerAvatar customer={s.customer} size="md" />
+                <div className="min-w-0">
+                  <div className="truncate text-base font-semibold text-zinc-900">
+                    {s.customer.name}
+                  </div>
+                  <div
+                    className="text-xs text-zinc-500"
+                    title={
+                      s.lastSessionDate ? `Last session: ${s.lastSessionDate}` : ""
+                    }
+                  >
+                    {s.lastSessionDate
+                      ? `Last seen ${relativeDate(s.lastSessionDate)}`
+                      : "No sessions yet"}
+                  </div>
+                </div>
               </div>
-              <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+              <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
                 <div>
                   <div className="text-zinc-500">Sessions</div>
                   <div className="text-sm font-semibold text-zinc-900">
@@ -97,17 +120,9 @@ export default function CustomersPage() {
                     {s.totalYes} / {s.totalNo}
                   </div>
                 </div>
-                <div>
-                  <div className="text-zinc-500">Last seen</div>
-                  <div className="text-sm font-semibold text-zinc-900">
-                    {s.lastSessionDate
-                      ? formatDate(s.lastSessionDate)
-                      : "—"}
-                  </div>
-                </div>
               </div>
-              <p className="mt-3 text-xs text-zinc-400 group-hover:text-zinc-700">
-                Click to view results →
+              <p className="mt-3 text-xs text-zinc-400 group-hover:text-brand-wine">
+                View results →
               </p>
             </Link>
           ))}
@@ -160,9 +175,9 @@ export default function CustomersPage() {
               </button>
               <button
                 type="submit"
-                className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-700"
+                className="btn-primary"
               >
-                Create & view
+                Create &amp; view
               </button>
             </div>
           </form>
@@ -170,13 +185,4 @@ export default function CustomersPage() {
       )}
     </div>
   );
-}
-
-function formatDate(iso: string): string {
-  const d = new Date(iso + "T00:00:00");
-  return d.toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
 }
