@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useStore } from "@/lib/hooks";
 import { store } from "@/lib/store";
@@ -9,8 +8,12 @@ import {
   buildConceptCustomerResults,
   customersShownTo,
 } from "@/lib/voting";
+import {
+  MultiSelectPopover,
+  SingleSelectPopover,
+} from "@/components/FilterPopover";
 
-type ResultsBucket = "all" | "top" | "bottom" | "never";
+type ResultsBucket = "_all_" | "top" | "bottom" | "never";
 
 export default function ConceptsPage() {
   const data = useStore();
@@ -20,9 +23,9 @@ export default function ConceptsPage() {
   );
 
   // Filter state
-  const [categoryFilter, setCategoryFilter] = useState<string>("all");
-  const [shownToFilter, setShownToFilter] = useState<string>("all");
-  const [resultsBucket, setResultsBucket] = useState<ResultsBucket>("all");
+  const [categoryFilter, setCategoryFilter] = useState<string[]>([]);
+  const [shownToFilter, setShownToFilter] = useState<string[]>([]);
+  const [resultsBucket, setResultsBucket] = useState<ResultsBucket>("_all_");
   const [minYes, setMinYes] = useState<string>("");
   const [maxYes, setMaxYes] = useState<string>("");
 
@@ -39,21 +42,30 @@ export default function ConceptsPage() {
     return Array.from(set).sort();
   }, [data.concepts]);
 
+  // Per-category concept count (for the option hint).
+  const categoryCounts = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const c of data.concepts) {
+      if (c.category) m.set(c.category, (m.get(c.category) ?? 0) + 1);
+    }
+    return m;
+  }, [data.concepts]);
+
   // Apply filters.
   const visibleStats = useMemo(() => {
     const min = minYes === "" ? null : parseInt(minYes, 10);
     const max = maxYes === "" ? null : parseInt(maxYes, 10);
 
     return stats.filter((s) => {
-      // Category filter
-      if (categoryFilter !== "all") {
-        if ((s.concept.category ?? "") !== categoryFilter) return false;
+      // Category filter (multi-select: any of the selected categories matches)
+      if (categoryFilter.length > 0) {
+        if (!categoryFilter.includes(s.concept.category ?? "")) return false;
       }
-      // Shown-to filter
-      if (shownToFilter !== "all") {
+      // Shown-to filter (multi-select: any of the selected customers)
+      if (shownToFilter.length > 0) {
         const wasShownTo = data.sessions.some(
           (sess) =>
-            sess.customerId === shownToFilter &&
+            shownToFilter.includes(sess.customerId) &&
             sess.conceptIds.includes(s.concept.id)
         );
         if (!wasShownTo) return false;
@@ -79,17 +91,17 @@ export default function ConceptsPage() {
   }, [stats, categoryFilter, shownToFilter, resultsBucket, minYes, maxYes, data.sessions]);
 
   function clearFilters() {
-    setCategoryFilter("all");
-    setShownToFilter("all");
-    setResultsBucket("all");
+    setCategoryFilter([]);
+    setShownToFilter([]);
+    setResultsBucket("_all_");
     setMinYes("");
     setMaxYes("");
   }
 
   const filtersActive =
-    categoryFilter !== "all" ||
-    shownToFilter !== "all" ||
-    resultsBucket !== "all" ||
+    categoryFilter.length > 0 ||
+    shownToFilter.length > 0 ||
+    resultsBucket !== "_all_" ||
     minYes !== "" ||
     maxYes !== "";
 
@@ -114,89 +126,77 @@ export default function ConceptsPage() {
       </div>
 
       {/* Filters */}
-      <div className="mt-4 flex flex-wrap items-end gap-4 rounded-lg border border-zinc-200 bg-white p-4">
-        <div>
-          <label className="block text-xs font-medium text-zinc-600">Category</label>
-          <select
+      <div className="mt-6 rounded-xl border border-zinc-200 bg-white p-4">
+        <div className="flex flex-wrap items-end gap-4">
+          <MultiSelectPopover
+            label="Category"
             value={categoryFilter}
-            onChange={(e) => setCategoryFilter(e.target.value)}
-            className="mt-1 rounded-md border border-zinc-300 px-3 py-1.5 text-sm"
-          >
-            <option value="all">All categories</option>
-            {categories.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-zinc-600">
-            Shown to
-          </label>
-          <select
+            onChange={setCategoryFilter}
+            options={categories.map((c) => ({
+              value: c,
+              label: c,
+              hint: String(categoryCounts.get(c) ?? 0),
+            }))}
+            placeholder="All categories"
+          />
+          <MultiSelectPopover
+            label="Shown to"
             value={shownToFilter}
-            onChange={(e) => setShownToFilter(e.target.value)}
-            className="mt-1 rounded-md border border-zinc-300 px-3 py-1.5 text-sm"
-          >
-            <option value="all">Any customer</option>
-            {data.customers.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-zinc-600">
-            Results
-          </label>
-          <select
-            value={resultsBucket}
-            onChange={(e) => setResultsBucket(e.target.value as ResultsBucket)}
-            className="mt-1 rounded-md border border-zinc-300 px-3 py-1.5 text-sm"
-          >
-            <option value="all">All results</option>
-            <option value="top">Top performers (≥70% yes)</option>
-            <option value="bottom">Bottom performers (≤30% yes)</option>
-            <option value="never">Never voted on</option>
-          </select>
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-zinc-600">
-            Min yes votes
-          </label>
-          <input
-            type="number"
-            min={0}
-            value={minYes}
-            onChange={(e) => setMinYes(e.target.value)}
-            placeholder="0"
-            className="mt-1 w-20 rounded-md border border-zinc-300 px-3 py-1.5 text-sm"
+            onChange={setShownToFilter}
+            options={data.customers.map((c) => ({
+              value: c.id,
+              label: c.name,
+            }))}
+            placeholder="Any customer"
           />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-zinc-600">
-            Max yes votes
-          </label>
-          <input
-            type="number"
-            min={0}
-            value={maxYes}
-            onChange={(e) => setMaxYes(e.target.value)}
-            placeholder="∞"
-            className="mt-1 w-20 rounded-md border border-zinc-300 px-3 py-1.5 text-sm"
+          <SingleSelectPopover
+            label="Results"
+            value={resultsBucket === "_all_" ? "" : resultsBucket}
+            onChange={(v) => setResultsBucket((v || "_all_") as ResultsBucket)}
+            allowClear
+            options={[
+              { value: "top", label: "Top performers", hint: "≥ 70% yes" },
+              { value: "bottom", label: "Bottom performers", hint: "≤ 30% yes" },
+              { value: "never", label: "Never voted on", hint: "0 votes" },
+            ]}
+            placeholder="All results"
           />
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+              Min yes votes
+            </div>
+            <input
+              type="number"
+              min={0}
+              value={minYes}
+              onChange={(e) => setMinYes(e.target.value)}
+              placeholder="0"
+              className="mt-1 w-20 rounded-md border border-zinc-300 px-3 py-1.5 text-sm focus:border-brand-wine focus:outline-none"
+            />
+          </div>
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+              Max yes votes
+            </div>
+            <input
+              type="number"
+              min={0}
+              value={maxYes}
+              onChange={(e) => setMaxYes(e.target.value)}
+              placeholder="∞"
+              className="mt-1 w-20 rounded-md border border-zinc-300 px-3 py-1.5 text-sm focus:border-brand-wine focus:outline-none"
+            />
+          </div>
+          {filtersActive && (
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="btn-secondary text-xs"
+            >
+              Clear all
+            </button>
+          )}
         </div>
-        {filtersActive && (
-          <button
-            type="button"
-            onClick={clearFilters}
-            className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
-          >
-            Clear filters
-          </button>
-        )}
       </div>
 
       <div className="mt-4 overflow-hidden rounded-lg border border-zinc-200 bg-white">

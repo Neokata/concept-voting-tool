@@ -5,6 +5,7 @@ import { use, useMemo, useState } from "react";
 import { useStore } from "@/lib/hooks";
 import { store } from "@/lib/store";
 import { aggregateSession, sortResults } from "@/lib/voting";
+import { BackButton } from "@/components/BackButton";
 
 export default function SessionDetailPage({
   params,
@@ -53,12 +54,7 @@ export default function SessionDetailPage({
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-8">
-      <Link
-        href="/admin/sessions"
-        className="text-sm text-zinc-500 hover:underline"
-      >
-        ← Back to sessions
-      </Link>
+      <BackButton href="/admin/sessions" label="Back to sessions" />
 
       <header className="mt-3 flex flex-wrap items-start justify-between gap-3 border-b border-zinc-200 pb-6">
         <div>

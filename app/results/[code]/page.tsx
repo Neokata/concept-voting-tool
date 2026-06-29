@@ -4,6 +4,7 @@ import { use, useMemo, useState } from "react";
 import Link from "next/link";
 import { useStore } from "@/lib/hooks";
 import { aggregateSession, sortResults, topN } from "@/lib/voting";
+import { BackButton } from "@/components/BackButton";
 
 type View = "top30" | "all" | "mine";
 
@@ -15,35 +16,36 @@ export default function ResultsPage({
   const { code: rawCode } = use(params);
   const code = rawCode.toUpperCase();
   const data = useStore();
+  const [view, setView] = useState<View>("top30");
+
   const session = useMemo(
     () => data.sessions.find((s) => s.code === code),
     [data.sessions, code]
   );
 
-  const [view, setView] = useState<View>("top30");
+  const customer = useMemo(
+    () => (session ? data.customers.find((c) => c.id === session.customerId) : null),
+    [data.customers, session]
+  );
 
-  if (!session) {
-    return (
-      <div className="mx-auto max-w-md px-6 py-16 text-center">
-        <h1 className="text-2xl font-bold">Session not found</h1>
-        <p className="mt-2 text-zinc-600">
-          No session exists with code <code className="font-mono">{code}</code>.
-        </p>
-        <Link href="/join" className="mt-6 inline-block text-blue-700 hover:underline">
-          Back to join
-        </Link>
-      </div>
-    );
-  }
+  const concepts = useMemo(
+    () =>
+      session
+        ? session.conceptIds
+            .map((id) => data.concepts.find((c) => c.id === id))
+            .filter((c): c is NonNullable<typeof c> => Boolean(c))
+        : [],
+    [session, data.concepts]
+  );
 
-  const customer = data.customers.find((c) => c.id === session.customerId);
-  const concepts = session.conceptIds
-    .map((id) => data.concepts.find((c) => c.id === id))
-    .filter((c): c is NonNullable<typeof c> => Boolean(c));
-  const sessionVotes = data.votes.filter((v) => v.sessionId === session.id);
+  const sessionVotes = useMemo(
+    () => (session ? data.votes.filter((v) => v.sessionId === session.id) : []),
+    [data.votes, session]
+  );
+
   const sorted = useMemo(
-    () => sortResults(aggregateSession(sessionVotes, concepts)),
-    [sessionVotes, concepts]
+    () => (session ? sortResults(aggregateSession(sessionVotes, concepts)) : []),
+    [sessionVotes, concepts, session]
   );
 
   const participantInfo = useMemo(() => {
@@ -57,6 +59,23 @@ export default function ResultsPage({
     }
   }, [code]);
 
+  if (!session) {
+    return (
+      <div className="mx-auto max-w-md px-6 py-10">
+        <BackButton href="/join" label="Back to join" />
+        <div className="mt-8 text-center">
+          <h1 className="text-2xl font-bold">Session not found</h1>
+          <p className="mt-2 text-zinc-600">
+            No session exists with code <code className="font-mono">{code}</code>.
+          </p>
+          <Link href="/join" className="mt-6 inline-block text-blue-700 hover:underline">
+            Back to join
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   const visible =
     view === "top30"
       ? topN(sorted, 30)
@@ -69,8 +88,9 @@ export default function ResultsPage({
   const totalParticipants = new Set(sessionVotes.map((v) => v.participantId)).size;
 
   return (
-    <div className="mx-auto max-w-5xl px-6 py-10">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+    <div className="mx-auto max-w-5xl px-6 py-8">
+      <BackButton href="/join" label="Back to join" />
+      <div className="mt-3 flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="font-mono text-sm text-zinc-500">Session {code}</p>
           <h1 className="text-2xl font-bold">

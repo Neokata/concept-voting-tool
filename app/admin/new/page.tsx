@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useStore } from "@/lib/hooks";
 import { store } from "@/lib/store";
 import { parseBulkConcepts, splitDuplicates } from "@/lib/bulkParse";
+import { BackButton } from "@/components/BackButton";
 
 const DEFAULT_YES_CAP = 10;
 
@@ -199,9 +200,7 @@ export default function NewSessionPage() {
 
   return (
     <div className="mx-auto max-w-4xl px-6 py-8">
-      <Link href="/admin/sessions" className="text-sm text-zinc-500 hover:underline">
-        ← Back to sessions
-      </Link>
+      <BackButton href="/admin/sessions" label="Back to sessions" />
       <h1 className="mt-2 text-2xl font-bold">New session</h1>
 
       <form onSubmit={handleCreate} className="mt-6 space-y-6">

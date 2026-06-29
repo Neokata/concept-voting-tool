@@ -2,9 +2,9 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import Link from "next/link";
 import { useStore } from "@/lib/hooks";
 import { store } from "@/lib/store";
+import { BackButton } from "@/components/BackButton";
 
 export default function JoinPage() {
   const router = useRouter();
@@ -129,11 +129,9 @@ export default function JoinPage() {
         </div>
       )}
 
-      <p className="mt-8 text-center text-xs text-zinc-500">
-        <Link href="/" className="hover:underline">
-          ← Back to home
-        </Link>
-      </p>
+      <div className="mt-8 flex justify-center">
+        <BackButton href="/" label="Back to home" />
+      </div>
     </div>
   );
 }

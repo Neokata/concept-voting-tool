@@ -7,6 +7,7 @@ import { useStore } from "@/lib/hooks";
 import { store } from "@/lib/store";
 import { DEFAULT_YES_CAP } from "@/lib/types";
 import { votesByParticipant } from "@/lib/voting";
+import { BackButton } from "@/components/BackButton";
 
 type ParticipantInfo = { id: string; alias: string };
 
@@ -81,29 +82,35 @@ export default function SessionVotePage({
 
 function NotFound({ code }: { code: string }) {
   return (
-    <div className="mx-auto max-w-md px-6 py-16 text-center">
-      <h1 className="text-2xl font-bold">Session not found</h1>
-      <p className="mt-2 text-zinc-600">
-        No session exists with code <code className="font-mono">{code}</code>.
-      </p>
-      <Link href="/join" className="mt-6 inline-block text-blue-700 hover:underline">
-        Try a different code
-      </Link>
+    <div className="mx-auto max-w-md px-6 py-10">
+      <BackButton href="/join" label="Back to join" />
+      <div className="mt-8 text-center">
+        <h1 className="text-2xl font-bold">Session not found</h1>
+        <p className="mt-2 text-zinc-600">
+          No session exists with code <code className="font-mono">{code}</code>.
+        </p>
+        <Link href="/join" className="mt-6 inline-block text-blue-700 hover:underline">
+          Try a different code
+        </Link>
+      </div>
     </div>
   );
 }
 
 function WaitingScreen({ code, message }: { code: string; message: string }) {
   return (
-    <div className="mx-auto max-w-md px-6 py-16 text-center">
-      <p className="font-mono text-3xl tracking-widest">{code}</p>
-      <p className="mt-4 text-zinc-700">{message}</p>
-      <Link
-        href={`/results/${code}`}
-        className="mt-6 inline-block text-sm text-blue-700 hover:underline"
-      >
-        Go to results →
-      </Link>
+    <div className="mx-auto max-w-md px-6 py-10">
+      <BackButton href="/join" label="Back to join" />
+      <div className="mt-8 text-center">
+        <p className="font-mono text-3xl tracking-widest">{code}</p>
+        <p className="mt-4 text-zinc-700">{message}</p>
+        <Link
+          href={`/results/${code}`}
+          className="mt-6 inline-block text-sm text-blue-700 hover:underline"
+        >
+          Go to results →
+        </Link>
+      </div>
     </div>
   );
 }
@@ -281,8 +288,9 @@ function OneAtATime({
   const canAdvance = voted !== undefined;
 
   return (
-    <div className="mx-auto max-w-2xl px-6 py-10">
-      <div className="flex items-center justify-between text-sm">
+    <div className="mx-auto max-w-2xl px-6 py-6">
+      <BackButton href="/join" label="Back to join" />
+      <div className="mt-6 flex items-center justify-between text-sm">
         <span className="font-mono text-zinc-500">{code}</span>
         <span className="text-zinc-500">
           Concept {index + 1} of {total}
@@ -423,14 +431,9 @@ function SummaryScreen({
   const allVoted = votes.size === concepts.length;
 
   return (
-    <div className="mx-auto max-w-3xl px-6 py-10">
+    <div className="mx-auto max-w-3xl px-6 py-6">
       <div className="flex items-center justify-between">
-        <Link
-          href={`/join`}
-          className="text-sm text-zinc-500 hover:underline"
-        >
-          Cancel
-        </Link>
+        <BackButton href="/join" label="Cancel and exit" />
         <span className="font-mono text-sm text-zinc-500">{code}</span>
       </div>
       <h1 className="mt-2 text-2xl font-bold">Review your votes</h1>
@@ -529,21 +532,24 @@ function ThankYouScreen({
   noCount: number;
 }) {
   return (
-    <div className="mx-auto max-w-md px-6 py-24 text-center">
-      <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-green-100 text-green-700">
-        <span className="text-3xl">✓</span>
+    <div className="mx-auto max-w-md px-6 py-12">
+      <BackButton href="/join" label="Back to join" />
+      <div className="mt-12 text-center">
+        <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-green-100 text-green-700">
+          <span className="text-3xl">✓</span>
+        </div>
+        <h1 className="text-2xl font-bold text-zinc-900">Thanks for voting!</h1>
+        <p className="mt-3 text-sm text-zinc-600">
+          Your responses for session <span className="font-mono">{code}</span> have
+          been recorded as <strong>{alias}</strong>.
+        </p>
+        <p className="mt-1 text-xs text-zinc-500">
+          {yesCount} yes · {noCount} no
+        </p>
+        <p className="mt-6 text-xs text-zinc-500">
+          You can close this window.
+        </p>
       </div>
-      <h1 className="text-2xl font-bold text-zinc-900">Thanks for voting!</h1>
-      <p className="mt-3 text-sm text-zinc-600">
-        Your responses for session <span className="font-mono">{code}</span> have
-        been recorded as <strong>{alias}</strong>.
-      </p>
-      <p className="mt-1 text-xs text-zinc-500">
-        {yesCount} yes · {noCount} no
-      </p>
-      <p className="mt-6 text-xs text-zinc-500">
-        You can close this window.
-      </p>
     </div>
   );
 }

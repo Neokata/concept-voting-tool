@@ -5,6 +5,7 @@ import { use, useMemo } from "react";
 import { useStore } from "@/lib/hooks";
 import { aggregateSession, sortResults } from "@/lib/voting";
 import { CustomerAvatar, longDate } from "@/lib/display";
+import { BackButton } from "@/components/BackButton";
 
 export default function CustomerDetailPage({
   params,
@@ -99,12 +100,7 @@ export default function CustomerDetailPage({
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-8">
-      <Link
-        href="/admin/customers"
-        className="text-sm text-zinc-500 hover:underline"
-      >
-        ← Back to customers
-      </Link>
+      <BackButton href="/admin/customers" label="Back to customers" />
 
       <header className="mt-3 flex items-center gap-4 border-b border-zinc-200 pb-6">
         <CustomerAvatar customer={customer} size="md" />
